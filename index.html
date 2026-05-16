@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>SalesPro v4.2 — Nội Thất Gỗ Minh Duy</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <style>html,body{margin:0;background:#0e1016}#root{min-height:100vh}#loader{display:flex;align-items:center;justify-content:center;min-height:100vh;color:#00d4aa;font-family:sans-serif;flex-direction:column;gap:16px}.spin{width:40px;height:40px;border:3px solid #1c2038;border-top-color:#00d4aa;border-radius:50%;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
 </head><body>
 <div id="root"><div id="loader"><div class="spin"></div><div>Đang khởi động...</div></div></div>
@@ -8,6 +11,38 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// FIREBASE CONFIG — khominhduy00
+// ═══════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyC9Mer2QatOGBFaXJ42B52WK7u49nt20ZI",
+  authDomain: "khominhduy00.firebaseapp.com",
+  databaseURL: "https://khominhduy00-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "khominhduy00",
+  storageBucket: "khominhduy00.firebasestorage.app",
+  messagingSenderId: "255998508572",
+  appId: "1:255998508572:web:f4e51436e1fdba4d9f29d9",
+  measurementId: "G-1LGLPH72GC"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+window.db = db;
+
+// Helper: lắng nghe realtime và trả về unsubscribe fn
+window.fbListen = (path, cb) => {
+  const ref = db.ref(path);
+  ref.on("value", snap => cb(snap.val()));
+  return () => ref.off("value");
+};
+// Helper: ghi dữ liệu
+window.fbSet = (path, data) => db.ref(path).set(data);
+// Helper: merge (update 1 phần)
+window.fbUpdate = (path, data) => db.ref(path).update(data);
+</script>
 <script type="text/babel" data-presets="env,react">
 const { useState, useEffect, useRef, useCallback } = React;
 // ════════════════════════════════════════════════════════
@@ -75,6 +110,56 @@ const nowStr = () => new Date().toLocaleString("vi-VN", { hour12: false });
 const todayStr = () => new Date().toISOString().split("T")[0];
 const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+// ════════════════════════════════════════════════════════
+// FIREBASE REALTIME HOOK — thay thế useLS cho dữ liệu chia sẻ
+// ════════════════════════════════════════════════════════
+function toArr(val) {
+  if (val === null || val === undefined) return [];
+  if (Array.isArray(val)) return val;
+  // Firebase lưu array dưới dạng object {0:{...}, 1:{...},...}
+  const keys = Object.keys(val).sort((a,b) => Number(a) - Number(b));
+  return keys.map(k => val[k]).filter(v => v !== null && v !== undefined);
+}
+
+function useFB(path, def) {
+  const isArr = Array.isArray(def);
+  const [v, sv] = useState(def);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const ref = window.db.ref(path);
+    const handler = snap => {
+      const raw = snap.val();
+      if (raw === null || raw === undefined) {
+        // KHÔNG ghi seed nếu def là array rỗng — tránh xóa data thật!
+        // Chỉ ghi seed nếu def có data thật (users, customers, suppliers)
+        const hasRealSeed = isArr ? def.length > 0 : (def && Object.keys(def).length > 0);
+        if (hasRealSeed) {
+          ref.set(def).catch(console.error);
+        }
+        sv(def);
+      } else {
+        const parsed = isArr ? toArr(raw) : raw;
+        sv(parsed);
+      }
+      setReady(true);
+    };
+    ref.on("value", handler);
+    return () => ref.off("value", handler);
+  }, [path]);
+
+  const set = useCallback((upd) => {
+    sv(prev => {
+      const next = typeof upd === "function" ? upd(prev) : upd;
+      window.db.ref(path).set(next).catch(console.error);
+      return next;
+    });
+  }, [path]);
+
+  return [v, set, ready];
+}
+
+// useLS vẫn giữ cho session cục bộ (mỗi máy đăng nhập riêng)
 function useLS(key, def) {
   const [v, sv] = useState(() => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; }
@@ -460,13 +545,16 @@ function App() {
     try { const s = localStorage.getItem("sp3_session"); return s ? JSON.parse(s) : null; } catch { return null; }
   });
 
-  const [users,      setUsers]     = useLS("sp3_users",     SEED_USERS);
-  const [products,   setProducts]  = useLS("sp3_products",  SEED_DATA.products);
-  const [customers,  setCusts]     = useLS("sp3_customers", SEED_DATA.customers);
-  const [suppliers,  setSuppliers] = useLS("sp3_suppliers", SEED_DATA.suppliers);
-  const [orders,     setOrders]    = useLS("sp3_orders",    SEED_DATA.orders);
-  const [purchases,  setPurchases] = useLS("sp3_purchases", SEED_DATA.purchases);
-  const [auditLog,   setAuditLog]  = useLS("sp3_audit",     SEED_DATA.auditLog);
+  // ── Dữ liệu chia sẻ — đồng bộ realtime qua Firebase ──
+  const [users,      setUsers,     usersReady]     = useFB("sp3/users",     SEED_USERS);
+  const [products,   setProducts,  productsReady]  = useFB("sp3/products",  SEED_DATA.products);
+  const [customers,  setCusts,     custsReady]     = useFB("sp3/customers", SEED_DATA.customers);
+  const [suppliers,  setSuppliers, suppliersReady] = useFB("sp3/suppliers", SEED_DATA.suppliers);
+  const [orders,     setOrders,    ordersReady]    = useFB("sp3/orders",    SEED_DATA.orders);
+  const [purchases,  setPurchases, purchasesReady] = useFB("sp3/purchases", SEED_DATA.purchases);
+  const [auditLog,   setAuditLog,  auditReady]     = useFB("sp3/audit",     SEED_DATA.auditLog);
+
+  const fbReady = usersReady && productsReady && custsReady && suppliersReady && ordersReady && purchasesReady && auditReady;
 
   const [page,      setPage]    = useState("dashboard");
   const [sideOpen,  setSideOpen] = useState(true);
@@ -505,11 +593,17 @@ function App() {
   };
 
   const reset = () => {
-    if(!window.confirm("Khôi phục dữ liệu mẫu? Toàn bộ dữ liệu hiện tại sẽ bị xóa!")) return;
-    ["sp3_users","sp3_products","sp3_customers","sp3_suppliers","sp3_orders","sp3_purchases","sp3_audit"].forEach(k=>localStorage.removeItem(k));
-    setUsers(SEED_USERS); setProducts(SEED_DATA.products); setCusts(SEED_DATA.customers);
-    setSuppliers(SEED_DATA.suppliers); setOrders(SEED_DATA.orders);
-    setPurchases(SEED_DATA.purchases); setAuditLog(SEED_DATA.auditLog);
+    if(!window.confirm("Khôi phục dữ liệu mẫu? Toàn bộ dữ liệu trên Firebase sẽ bị xóa!")) return;
+    // Ghi seed data lên Firebase — tất cả client tự động cập nhật
+    window.db.ref("sp3").set({
+      users: SEED_USERS,
+      products: SEED_DATA.products,
+      customers: SEED_DATA.customers,
+      suppliers: SEED_DATA.suppliers,
+      orders: SEED_DATA.orders,
+      purchases: SEED_DATA.purchases,
+      audit: SEED_DATA.auditLog || []
+    });
     showToast("Đã khôi phục dữ liệu mẫu");
   };
 
@@ -524,6 +618,15 @@ function App() {
     }
     if (updated && !updated.active) logout();
   }, [users]);
+
+  // Chờ Firebase kết nối xong mới render
+  if (!fbReady) return (
+    <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0e1016",flexDirection:"column",gap:16 }}>
+      <div style={{ width:44,height:44,border:"3px solid #1c2038",borderTopColor:"#00d4aa",borderRadius:"50%",animation:"s .8s linear infinite" }}/>
+      <div style={{ color:"#00d4aa",fontSize:14,fontWeight:700 }}>Đang kết nối dữ liệu...</div>
+      <div style={{ color:"#666",fontSize:11 }}>Firebase Realtime Database</div>
+    </div>
+  );
 
   if (!currentUser) return <><style>{CSS}</style><LoginPage users={users} onLogin={login} /></>;
 
