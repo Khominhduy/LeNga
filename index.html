@@ -102,24 +102,16 @@ const SEED_USERS = [
 const SEED_DATA = {
   products: [],
   customers: [
-    { id:"c1", code:"KH001", name:"Tạp hóa Bà Lan",      phone:"0901234567", address:"123 Lê Lợi, Q1",        totalBought:45000000 },
-    { id:"c2", code:"KH002", name:"Siêu thị Mini Hùng",   phone:"0912345678", address:"456 Nguyễn Trãi, Q5",   totalBought:128000000 },
-    { id:"c3", code:"KH003", name:"Cửa hàng Minh Châu",  phone:"0923456789", address:"789 Trần Hưng Đạo, Q10", totalBought:67000000 },
+    { id:"c1", code:"KH001", name:"Tạp hóa Bà Lan",      phone:"0901234567", address:"123, Lê Lợi, Quận 1, Hà Nội",        totalBought:45000000 },
+    { id:"c2", code:"KH002", name:"Siêu thị Mini Hùng",   phone:"0912345678", address:"456, Nguyễn Trãi, Quận 5, Hà Nội",   totalBought:128000000 },
+    { id:"c3", code:"KH003", name:"Cửa hàng Minh Châu",  phone:"0923456789", address:"789, Trần Hưng Đạo, Quận 10, Hà Nội", totalBought:67000000 },
   ],
   suppliers: [
     { id:"s1", code:"NCC001", name:"Lavie VN",    phone:"0281234567", contact:"Anh Tuấn", email:"lavie@vn",  address:"KCN Bình Dương" },
     { id:"s2", code:"NCC002", name:"Pepsico VN",  phone:"0289876543", contact:"Chị Mai",  email:"pepsi@vn",  address:"KCN Long An" },
     { id:"s3", code:"NCC003", name:"Acecook VN",  phone:"0285556666", contact:"Anh Dũng", email:"ace@vn",    address:"Bình Dương" },
   ],
-  orders: [
-    // approved=true → đã xuất kho; approved=false → đang chờ duyệt
-    // delivered, returned, paid là trạng thái sau khi đã xuất
-    { id:"o1", code:"DH001", customerId:"c1", customerName:"Tạp hóa Bà Lan",    date:"2026-05-08", total:1850000, paid:0, approved:true,  delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u3", createdByName:"Lê Văn Bán Hàng",   items:[{productId:"p2",productName:"Coca-Cola 330ml",qty:5,price:210000,unit:"Thùng"},{productId:"p1",productName:"Nước suối Lavie",qty:8,price:95000,unit:"Thùng"}] },
-    { id:"o2", code:"DH002", customerId:"c2", customerName:"Siêu thị Mini Hùng", date:"2026-05-09", total:4200000, paid:4200000, approved:true,  delivered:true,  returned:false, isPaid:true,  status:"paid", createdBy:"u3", createdByName:"Lê Văn Bán Hàng",   items:[{productId:"p3",productName:"Mì Hảo Hảo",qty:10,price:185000,unit:"Thùng"},{productId:"p4",productName:"Dầu Neptune 5L",qty:8,price:215000,unit:"Can"}] },
-    { id:"o3", code:"DH003", customerId:"c3", customerName:"Cửa hàng Minh Châu", date:"2026-05-10", total:2750000, paid:0,       approved:false, delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u4", createdByName:"Phạm Thị Doanh Thu", items:[{productId:"p5",productName:"Pepsi 330ml",qty:10,price:195000,unit:"Thùng"},{productId:"p1",productName:"Nước suối Lavie",qty:5,price:95000,unit:"Thùng"}] },
-    { id:"o4", code:"DH004", customerId:"c1", customerName:"Tạp hóa Bà Lan",    date:"2026-05-10", total:1260000, paid:0,       approved:false, delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u1", createdByName:"Nguyễn Văn Chủ",     items:[{productId:"p3",productName:"Mì Hảo Hảo",qty:4,price:185000,unit:"Thùng"},{productId:"p5",productName:"Pepsi 330ml",qty:2,price:195000,unit:"Thùng"}] },
-    { id:"o5", code:"DH005", customerId:"c2", customerName:"Siêu thị Mini Hùng", date:"2026-05-10", total:2700000, paid:2700000, approved:false, delivered:false, returned:false, isPaid:false, status:"paid", createdBy:"u1", createdByName:"Nguyễn Văn Chủ",     items:[{productId:"p4",productName:"Dầu Neptune 5L",qty:12,price:215000,unit:"Can"},{productId:"p1",productName:"Nước suối Lavie",qty:1,price:95000,unit:"Thùng"}] },
-  ],
+  orders: [],
   purchases: [],
   auditLog: [
     { id:"a1", userId:"u1", userName:"Nguyễn Văn Chủ",   role:"owner",   action:"login",           detail:"Đăng nhập hệ thống",            time:"08/05/2026 07:58" },
@@ -250,24 +242,7 @@ select.input option{background:var(--sur2);}
   .table td,.table th{padding:8px 10px;}
   .btn{font-size:12px;padding:7px 12px;}
   .card{padding:14px;}
-  .modal{padding:18px;border-radius:18px 18px 0 0;position:fixed;bottom:0;left:0;right:0;max-height:92vh;margin:0;border-bottom:none;}
-  .modal-bg{align-items:flex-end;padding:0;}
-  .nav-item{padding:8px 12px;}
-  /* Bottom nav */
-  .bottom-nav{display:flex!important;}
-  .sidebar-desktop{display:none!important;}
-  .main-pad{padding-bottom:70px!important;}
-  /* Stats grid 2col on mobile */
-  .stats-grid{grid-template-columns:1fr 1fr!important;}
-  /* Dashboard layout single col */
-  .dash-layout{grid-template-columns:1fr!important;}
-  /* Mobile drawer always rendered, shown via left position */
-  .sidebar-mobile-drawer{display:flex!important;}
-}
-@media(min-width:769px){
-  .bottom-nav{display:none!important;}
-  .sidebar-overlay{display:none!important;}
-  .sidebar-mobile-drawer{display:none!important;}
+  .modal{padding:20px;}
 }
 @media print{
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
@@ -680,25 +655,20 @@ function App() {
 
       {/* TOAST */}
       {toast && (
-        <div className="toast-enter" style={{ position:"fixed", bottom:80, right:16, zIndex:9999, background: toast.type==="success"?"var(--acc)":"var(--danger)", color:"#0e1016", padding:"10px 20px", borderRadius:10, fontWeight:700, fontSize:13, boxShadow:"0 8px 24px #00000055" }}>
+        <div className="toast-enter" style={{ position:"fixed", bottom:24, right:24, zIndex:9999, background: toast.type==="success"?"var(--acc)":"var(--danger)", color:"#0e1016", padding:"10px 20px", borderRadius:10, fontWeight:700, fontSize:13, boxShadow:"0 8px 24px #00000055" }}>
           {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
         </div>
       )}
 
       {modal && (
-        <div className="modal-bg" onClick={()=>setModal(null)}>
+        <div className="modal-bg">
           <div className="modal fade-in" onClick={e=>e.stopPropagation()}>{modal}</div>
         </div>
       )}
 
-      {/* MOBILE SIDEBAR OVERLAY */}
-      {sideOpen && (
-        <div className="sidebar-overlay" style={{ position:"fixed",inset:0,zIndex:200,background:"#00000077" }} onClick={()=>setSideOpen(false)} />
-      )}
-
       <div style={{ display:"flex", minHeight:"100vh" }}>
-        {/* SIDEBAR — desktop always visible, mobile slides in as overlay */}
-        <div className="sidebar-desktop" style={{ width:224, minWidth:224, background:"var(--sur)", borderRight:"1px solid var(--bdr)", display:"flex", flexDirection:"column", overflow:"hidden", position:"sticky", top:0, height:"100vh" }}>
+        {/* SIDEBAR */}
+        <div style={{ width:sideOpen?224:0, minWidth:sideOpen?224:0, background:"var(--sur)", borderRight:"1px solid var(--bdr)", display:"flex", flexDirection:"column", overflow:"hidden", transition:"all 0.2s", position:"sticky", top:0, height:"100vh" }}>
           <div style={{ padding:"18px 14px 14px", borderBottom:"1px solid var(--bdr)" }}>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <div style={{ width:36, height:36, background:"linear-gradient(135deg,#00d4aa,#0055ff)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
@@ -706,18 +676,22 @@ function App() {
               </div>
               <div>
                 <div style={{ fontWeight:800, fontSize:14, color:"var(--acc)" }}>SalesPro</div>
-                <div style={{ fontSize:10, color:"var(--muted)" }}>v4 — Phân quyền 3 cấp</div>
+                <div style={{ fontSize:10, color:"var(--muted)" }}>v3 — Phân quyền 3 cấp</div>
               </div>
             </div>
           </div>
+
           <div style={{ flex:1, overflowY:"auto", padding:"10px 10px", display:"flex", flexDirection:"column", gap:2 }}>
             {nav.map(n => (
-              <div key={n.id} className={`nav-item${page===n.id?" active":""}`} onClick={()=>{ setPage(n.id); setSideOpen(false); }}>
+              <div key={n.id} className={`nav-item${page===n.id?" active":""}`}
+                onClick={()=>{ setPage(n.id); if(window.innerWidth<768) setSideOpen(false); }}>
                 <Ic n={n.icon} s={16} />{n.label}
               </div>
             ))}
           </div>
+
           <div style={{ padding:"12px 10px", borderTop:"1px solid var(--bdr)" }}>
+            {/* Current user info */}
             <div style={{ padding:"8px 14px", marginBottom:4, background:"var(--sur2)", borderRadius:8 }}>
               <div style={{ fontWeight:700, fontSize:13, marginBottom:3 }}>{u.name}</div>
               <RoleBadge role={u.role} />
@@ -727,41 +701,10 @@ function App() {
           </div>
         </div>
 
-        {/* MOBILE SIDEBAR DRAWER */}
-        <div style={{ position:"fixed", top:0, left: sideOpen?0:-260, width:240, height:"100vh", background:"var(--sur)", borderRight:"1px solid var(--bdr)", display:"flex", flexDirection:"column", zIndex:300, transition:"left 0.25s ease", boxShadow: sideOpen?"4px 0 24px #00000055":"none" }} className="sidebar-mobile-drawer">
-          <div style={{ padding:"18px 14px 14px", borderBottom:"1px solid var(--bdr)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ width:36, height:36, background:"linear-gradient(135deg,#00d4aa,#0055ff)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <Ic n="shield" s={18} />
-              </div>
-              <div>
-                <div style={{ fontWeight:800, fontSize:14, color:"var(--acc)" }}>SalesPro</div>
-                <div style={{ fontSize:10, color:"var(--muted)" }}>v4 — 3 cấp quyền</div>
-              </div>
-            </div>
-            <button className="btn btn-ghost btn-sm" style={{ padding:"4px 8px" }} onClick={()=>setSideOpen(false)}><Ic n="x" s={16}/></button>
-          </div>
-          <div style={{ flex:1, overflowY:"auto", padding:"10px 10px", display:"flex", flexDirection:"column", gap:2 }}>
-            {nav.map(n => (
-              <div key={n.id} className={`nav-item${page===n.id?" active":""}`} onClick={()=>{ setPage(n.id); setSideOpen(false); }}>
-                <Ic n={n.icon} s={16} />{n.label}
-              </div>
-            ))}
-          </div>
-          <div style={{ padding:"12px 10px", borderTop:"1px solid var(--bdr)" }}>
-            <div style={{ padding:"8px 14px", marginBottom:4, background:"var(--sur2)", borderRadius:8 }}>
-              <div style={{ fontWeight:700, fontSize:13, marginBottom:3 }}>{u.name}</div>
-              <RoleBadge role={u.role} />
-            </div>
-            <div className="nav-item" style={{ fontSize:12 }} onClick={()=>{ reset(); setSideOpen(false); }}><Ic n="refresh" s={14} />Reset demo</div>
-            <div className="nav-item" style={{ color:"var(--danger)" }} onClick={logout}><Ic n="logout" s={16} />Đăng xuất</div>
-          </div>
-        </div>
-
         {/* MAIN */}
         <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
           {/* TOPBAR */}
-          <div style={{ background:"var(--sur)", borderBottom:"1px solid var(--bdr)", padding:"0 16px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
+          <div style={{ background:"var(--sur)", borderBottom:"1px solid var(--bdr)", padding:"0 20px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <button className="btn btn-ghost btn-sm" style={{ padding:"6px 8px" }} onClick={()=>setSideOpen(v=>!v)}><Ic n="menu" s={18} /></button>
               <span style={{ fontWeight:700, fontSize:15 }}>{nav.find(n=>n.id===page)?.label}</span>
@@ -773,7 +716,7 @@ function App() {
           </div>
 
           {/* PAGE */}
-          <div className="main-pad fade-in" style={{ flex:1, overflowY:"auto", padding:16 }} key={page}>
+          <div style={{ flex:1, overflowY:"auto", padding:20 }} className="fade-in" key={page}>
             {page==="dashboard"        && <Dashboard ctx={ctx} setPage={setPage} setSelectedOrderId={setSelectedOrderId} setSelectedCustomerId={setSelectedCustomerId} />}
             {page==="orders"           && <OrdersPage ctx={ctx} printInvoice={printInvoice} setPage={setPage} setSelectedOrderId={setSelectedOrderId} setSelectedCustomerId={setSelectedCustomerId} />}
             {page==="order_detail"     && <OrderDetailPage ctx={ctx} orderId={selectedOrderId} setPage={setPage} setSelectedCustomerId={setSelectedCustomerId} printInvoice={printInvoice} />}
@@ -787,22 +730,6 @@ function App() {
             {page==="usermgmt"         && <UserMgmtPage ctx={ctx} />}
           </div>
         </div>
-      </div>
-
-      {/* BOTTOM NAV — mobile only */}
-      <div className="bottom-nav" style={{ position:"fixed", bottom:0, left:0, right:0, height:60, background:"var(--sur)", borderTop:"1px solid var(--bdr)", zIndex:150, alignItems:"stretch", justifyContent:"space-around", display:"none" }}>
-        {[
-          { id:"dashboard", icon:"home",   label:"Tổng quan" },
-          { id:"orders",    icon:"cart",   label:"Đơn hàng" },
-          ...(can(u,"product_view")?[{ id:"products", icon:"box", label:"Kho" }]:[]),
-          { id:"customers", icon:"users",  label:"Khách" },
-          ...(can(u,"report_view")?[{ id:"report", icon:"bar", label:"Báo cáo" }]:[]),
-        ].slice(0,5).map(n=>(
-          <div key={n.id} onClick={()=>setPage(n.id)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3, cursor:"pointer", color: page===n.id?"var(--acc)":"var(--muted)", background: page===n.id?"#00d4aa0d":"transparent", borderTop: page===n.id?"2px solid var(--acc)":"2px solid transparent", transition:"all .15s" }}>
-            <Ic n={n.icon} s={20} />
-            <span style={{ fontSize:9, fontWeight:700, letterSpacing:"0.04em" }}>{n.label}</span>
-          </div>
-        ))}
       </div>
     </>
   );
@@ -872,7 +799,7 @@ function Dashboard({ ctx, setPage, setSelectedOrderId, setSelectedCustomerId }) 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       {/* Stats row — 4 card đều nhau */}
-      <div className="stats-grid" style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
         {stats.map((s,i)=>(
           <div key={i} className="card" style={{ borderLeft:`3px solid ${s.color}`, padding:"14px 16px" }}>
             <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600, marginBottom:4 }}>{s.label}</div>
@@ -881,8 +808,8 @@ function Dashboard({ ctx, setPage, setSelectedOrderId, setSelectedCustomerId }) 
         ))}
       </div>
 
-      {/* Main layout: 2 bảng trái | kho phải */}
-      <div className="dash-layout" style={{ display:"grid", gridTemplateColumns:"3fr 1fr", gap:12, alignItems:"start" }}>
+      {/* Main layout: 2 bảng trái | kho phải — cột kho thẳng hàng với stat card thứ 4 */}
+      <div style={{ display:"grid", gridTemplateColumns:"3fr 1fr", gap:12, alignItems:"start" }}>
 
         {/* LEFT: 2 bảng đơn */}
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -1017,6 +944,7 @@ function OrdersPage({ ctx, printInvoice, setPage, setSelectedOrderId, setSelecte
   const openNew = () => setModal(
     <OrderForm u={u} customers={customers} products={products}
       onAddCustomer={(nc) => { setCusts(cs=>[...cs,nc]); addLog("customer_create",`Thêm KH nhanh: ${nc.name}`); }}
+      onAddProduct={(np) => { setProducts(ps=>[...ps,np]); addLog("product_create",`Thêm SP từ đơn hàng: ${np.name}`); }}
       onSave={order=>{
         const code=`DH${String(orders.length+1).padStart(3,"0")}`;
         setOrders(os=>[{...order,id:uid(),code,approved:false,delivered:false,returned:false,isPaid:order.paid>=order.total},...os]);
@@ -1286,23 +1214,83 @@ function CustomerDetailPage({ ctx, customerId, setPage, setSelectedOrderId }) {
   );
 }
 
-function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
+function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onAddProduct }) {
   const draftKey = `sp3_draft_order_${u.id}`;
   const savedDraft = (() => { try { const s=localStorage.getItem(draftKey); return s?JSON.parse(s):null; } catch { return null; } })();
 
-  const [custSearch,  setCustSearch]  = useState("");
-  const [custId,      setCustId]      = useState(savedDraft?.custId || "");
-  const [showCustDD,  setShowCustDD]  = useState(false);
-  const [prodSearch,  setProdSearch]  = useState("");
-  const [showProdDD,  setShowProdDD]  = useState(false);
-  const [priceType,   setPriceType]   = useState("price");
-  const [items,       setItems]       = useState(savedDraft?.items || []);
-  const [paid,        setPaid]        = useState(savedDraft?.paid || 0);
-  const [discount,    setDiscount]    = useState(savedDraft?.discount || 0);
-  const [shippingFee, setShipFee]     = useState(savedDraft?.shippingFee || 0);
-  const [shipping,    setShipping]    = useState(savedDraft?.shipping || "self");
-  const [note,        setNote]        = useState(savedDraft?.note || "");
-  const [hasDraft,    setHasDraft]    = useState(!!savedDraft);
+  // ── Customer fields (always visible, name is search+new) ──
+  const [custId,      setCustId]    = useState(savedDraft?.custId || "");
+  const [custName,    setCustName]  = useState("");
+  const [custPhone,   setCustPhone] = useState("");
+  const [custSoNha,   setCustSoNha] = useState("");
+  const [custDuong,   setCustDuong] = useState("");
+  const [custPhuong,  setCustPhuong]= useState("");
+  const [custTP,      setCustTP]    = useState("");
+  const [showNameDD,  setShowNameDD]= useState(false);
+
+  // Pre-fill if draft had a saved custId
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  React.useEffect(() => {
+    if (draftLoaded) return;
+    if (savedDraft?.custId) {
+      const c = customers.find(x=>x.id===savedDraft.custId);
+      if (c) {
+        const parts = (c.address||"").split(",").map(s=>s.trim());
+        setCustName(c.name); setCustPhone(c.phone||"");
+        setCustSoNha(parts[0]||""); setCustDuong(parts[1]||"");
+        setCustPhuong(parts[2]||""); setCustTP(parts[3]||"");
+      }
+    }
+    setDraftLoaded(true);
+  }, []);
+
+  // Filter customers by name/phone/code
+  const nameFiltered = custName.trim().length > 0
+    ? customers.filter(c =>
+        c.name.toLowerCase().includes(custName.toLowerCase()) ||
+        (c.phone||"").includes(custName) ||
+        (c.code||"").toLowerCase().includes(custName.toLowerCase())
+      ).slice(0, 8)
+    : customers.slice(0, 6); // show recent 6 when field focused empty
+
+  const selectExistingCust = (c) => {
+    const parts = (c.address||"").split(",").map(s=>s.trim());
+    setCustId(c.id);
+    setCustName(c.name);
+    setCustPhone(c.phone||"");
+    setCustSoNha(parts[0]||"");
+    setCustDuong(parts[1]||"");
+    setCustPhuong(parts[2]||"");
+    setCustTP(parts[3]||"");
+    setShowNameDD(false);
+  };
+
+  const clearCust = () => {
+    setCustId(""); setCustName(""); setCustPhone("");
+    setCustSoNha(""); setCustDuong(""); setCustPhuong(""); setCustTP("");
+    setShowNameDD(false);
+  };
+
+  // ── Products ──
+  const [prodSearch,    setProdSearch]   = useState("");
+  const [showProdDD,    setShowProdDD]   = useState(false);
+  const [priceType,     setPriceType]    = useState("price");
+  const [items,         setItems]        = useState(savedDraft?.items || []);
+  const [paid,          setPaid]         = useState(savedDraft?.paid || 0);
+  const [discount,      setDiscount]     = useState(savedDraft?.discount || 0);
+  const [shippingFee,   setShipFee]      = useState(savedDraft?.shippingFee || 0);
+  const [shipping,      setShipping]     = useState(savedDraft?.shipping || "self");
+  const [note,          setNote]         = useState(savedDraft?.note || "");
+  const [hasDraft,      setHasDraft]     = useState(!!savedDraft);
+  // SP mới chưa có trong danh sách — tên đang gõ, chờ người dùng chọn "Chỉ đơn này" hay "Lưu vào danh sách"
+  const [pendingNewProd, setPendingNewProd] = useState(null); // { name, unit, price, costPrice, category }
+
+  // ESC to close
+  React.useEffect(() => {
+    const handler = (e) => { if(e.key==="Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const saveDraft = () => {
     localStorage.setItem(draftKey, JSON.stringify({ custId, items, paid, discount, shippingFee, shipping, note }));
@@ -1314,53 +1302,7 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
   const total = Math.max(0, subtotal - discount + shippingFee);
   const debt = Math.max(0, total - paid);
 
-  // New customer form state
-  const [newCustName,   setNewCustName]   = useState(custSearch);
-  const [newCustPhone,  setNewCustPhone]  = useState("");
-  const [newCustSoNha,  setNewCustSoNha]  = useState("");
-  const [newCustDuong,  setNewCustDuong]  = useState("");
-  const [newCustPhuong, setNewCustPhuong] = useState("");
-  const [newCustTP,     setNewCustTP]     = useState("");
-  const [showNewCust,   setShowNewCust]   = useState(false);
-
-  // Customer search — filter by name OR phone OR address. Show dropdown only when typing
-  const custFiltered = custSearch.trim()
-    ? customers.filter(c =>
-        c.name.toLowerCase().includes(custSearch.toLowerCase()) ||
-        (c.phone||"").includes(custSearch) ||
-        (c.code||"").toLowerCase().includes(custSearch.toLowerCase())
-      ).slice(0, 8)
-    : [];
-
-  const selectCustomer = (c) => { setCustId(c.id); setCustSearch(""); setShowCustDD(false); setShowNewCust(false); };
-
-  const handleCustInput = (val) => {
-    setCustSearch(val);
-    setCustId("");
-    setShowCustDD(true);
-    setNewCustName(val);
-    // Hide new-cust form while results match
-    setShowNewCust(false);
-  };
-
-  // When dropdown closes without picking — show new customer form if search has text
-  const handleCustBlur = () => {
-    setTimeout(() => {
-      setShowCustDD(false);
-      if (custSearch.trim() && !custId) setShowNewCust(true);
-    }, 180);
-  };
-
-  const submitNewCust = () => {
-    const addr = [newCustSoNha, newCustDuong, newCustPhuong, newCustTP].filter(Boolean).join(", ");
-    const nc = { id:uid(), code:`KH${String(customers.length+1).padStart(3,"0")}`, name:newCustName, phone:newCustPhone, address:addr, totalBought:0 };
-    onAddCustomer(nc);
-    setCustId(nc.id);
-    setShowNewCust(false);
-    setCustSearch("");
-  };
-
-  // Product search filter
+  // Product search
   const prodFiltered = prodSearch.trim()
     ? products.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()) || (p.code||"").toLowerCase().includes(prodSearch.toLowerCase())).slice(0,10)
     : [];
@@ -1374,26 +1316,58 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
   };
 
   const addCustomProduct = () => {
+    // Kept for compatibility — direct add without saving
     if (!prodSearch.trim()) return;
-    // Thêm vào đơn ngay — không bắt buộc thêm vào danh sách
-    setItems(is=>[...is, { productId:"custom_"+uid(), productName:prodSearch, unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
+    setItems(is=>[...is, { productId:"custom_"+uid(), productName:prodSearch.trim(), unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
     setProdSearch(""); setShowProdDD(false);
+  };
+
+  // Thêm vào đơn này thôi, không lưu danh sách
+  const addPendingOrderOnly = () => {
+    const name = (pendingNewProd?.name || prodSearch).trim();
+    if (!name) return;
+    setItems(is=>[...is, { productId:"custom_"+uid(), productName:name, unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
+    setPendingNewProd(null); setProdSearch(""); setShowProdDD(false);
+  };
+
+  // Thêm vào đơn VÀ lưu vào danh sách sản phẩm
+  const addPendingAndSave = () => {
+    const name = (pendingNewProd?.name || prodSearch).trim();
+    if (!name) return;
+    const newId = uid();
+    const words = name.split(/\s+/);
+    const prefix = words.map(w=>w.charAt(0).toUpperCase()).join("").slice(0,4);
+    const autoCode = prefix + String(products.length+1).padStart(2,"0");
+    const np = { id:newId, code:autoCode, name, unit:"Cái", stock:0, price:0, retailPrice:0, costPrice:0, category:"Khác", supplierId:null };
+    onAddProduct(np);
+    setItems(is=>[...is, { productId:newId, productName:name, unit:"Cái", qty:1, price:0, stock:0 }]);
+    setPendingNewProd(null); setProdSearch(""); setShowProdDD(false);
   };
 
   const setItem = (idx,k,v) => setItems(is=>is.map((x,i)=>i===idx?{...x,[k]:v}:x));
   const removeItem = (idx) => setItems(is=>is.filter((_,i)=>i!==idx));
 
   const save = () => {
-    if (!custId) return;
-    if (items.length === 0) return;
-    const cust2 = customers.find(c=>c.id===custId);
+    if (!custName.trim()) { alert("Vui lòng nhập tên khách hàng!"); return; }
+    if (items.length === 0) { alert("Vui lòng thêm ít nhất 1 sản phẩm!"); return; }
+
+    let finalCustId = custId;
+    // Nếu là khách mới (chưa có custId) → tạo mới
+    if (!finalCustId) {
+      const addr = [custSoNha, custDuong, custPhuong, custTP].filter(Boolean).join(", ");
+      const nc = { id:uid(), code:`KH${String(customers.length+1).padStart(3,"0")}`, name:custName.trim(), phone:custPhone.trim(), address:addr, totalBought:0 };
+      onAddCustomer(nc);
+      finalCustId = nc.id;
+    }
+
+    const cust2 = customers.find(c=>c.id===finalCustId) || { name: custName.trim() };
     const enriched = items.map(i=>({ productId:i.productId, productName:i.productName, unit:i.unit, qty:i.qty, price:i.price }));
-    onSave({ customerId:custId, customerName:cust2?.name, date:todayStr(), total, paid:Math.min(paid,total), status: paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, discount, shippingFee, shipping, note, createdBy:u.id, createdByName:u.name });
+    onSave({ customerId:finalCustId, customerName:cust2?.name||custName.trim(), date:todayStr(), total, paid:Math.min(paid,total), status: paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, discount, shippingFee, shipping, note, createdBy:u.id, createdByName:u.name });
     clearDraft();
   };
 
-  const cust = customers.find(c=>c.id===custId);
   const boxS = { background:"var(--sur2)", borderRadius:10, padding:"12px 14px", border:"1px solid var(--bdr)" };
+  const isExisting = !!custId;
 
   return (
     <div style={{ maxWidth:820 }}>
@@ -1401,7 +1375,7 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
         <h3 style={{ fontWeight:800, fontSize:17 }}>Tạo đơn hàng mới</h3>
         <div style={{ display:"flex", gap:8 }}>
           <button className="btn btn-ghost btn-sm" onClick={saveDraft}><Ic n="save" s={14}/>Lưu nháp</button>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} title="Thoát (ESC)"><Ic n="x"/>Thoát</button>
         </div>
       </div>
       {hasDraft && <div style={{ fontSize:12, color:"var(--acc)", background:"#00d4aa0f", padding:"6px 12px", borderRadius:8, marginBottom:12, border:"1px solid #00d4aa22" }}>📂 Bản nháp đã lưu — <button onClick={clearDraft} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",fontSize:12,fontFamily:"inherit" }}>Xóa nháp</button></div>}
@@ -1410,97 +1384,104 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
 
         {/* ═══ THÔNG TIN KHÁCH HÀNG ═══ */}
         <div style={boxS}>
-          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
-            <Ic n="users" s={14}/>
-            <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Thông tin khách hàng</span>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <Ic n="users" s={14}/>
+              <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Thông tin khách hàng</span>
+            </div>
+            {isExisting && (
+              <span className="badge badge-green" style={{ fontSize:10 }}>✓ Khách cũ</span>
+            )}
+            {!isExisting && custName.trim() && (
+              <span className="badge badge-yellow" style={{ fontSize:10 }}>⚡ Khách mới</span>
+            )}
           </div>
 
-          {/* Search box */}
-          {!cust && (
+          {/* TÊN — ô tìm kiếm tổng hợp */}
+          <div style={{ position:"relative", marginBottom:10 }}>
+            <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>
+              TÊN KHÁCH HÀNG * &nbsp;<span style={{ fontWeight:400, color:"var(--muted)", fontSize:10, textTransform:"none" }}>(gõ để tìm KH cũ hoặc nhập tên mới)</span>
+            </label>
             <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)", zIndex:1 }}><Ic n="search" s={14}/></span>
-              <input className="input" style={{ paddingLeft:34 }}
-                placeholder="Tìm tên, SĐT, mã KH... hoặc nhập tên khách mới"
-                value={custSearch}
-                onChange={e=>handleCustInput(e.target.value)}
-                onFocus={()=>{ if(custSearch.trim()) setShowCustDD(true); }}
-                onBlur={handleCustBlur}
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
+              <input className="input" style={{ paddingLeft:34, paddingRight: isExisting?36:13, fontWeight: isExisting?700:400, color: isExisting?"var(--acc)":"var(--text)" }}
+                placeholder="Gõ tên hoặc SĐT để tìm KH cũ / nhập tên mới..."
+                value={custName}
+                onChange={e=>{ setCustName(e.target.value); setCustId(""); setShowNameDD(true); }}
+                onFocus={()=>setShowNameDD(true)}
+                onBlur={()=>setTimeout(()=>setShowNameDD(false), 180)}
               />
-              {/* Dropdown results */}
-              {showCustDD && custFiltered.length>0 && (
-                <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:240, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
-                  {custFiltered.map(c=>(
-                    <div key={c.id}
-                      onMouseDown={()=>selectCustomer(c)}
-                      style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
-                      onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
-                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <div style={{ fontWeight:700, fontSize:13 }}>{c.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {c.code}</span></div>
-                      <div style={{ fontSize:11, color:"var(--muted)", display:"flex", gap:12, flexWrap:"wrap" }}>
-                        <span>📞 {c.phone||"—"}</span>
-                        <span>📍 {c.address||"—"}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {custName && (
+                <button onMouseDown={clearCust} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"var(--muted)", padding:4 }}>
+                  <Ic n="x" s={13}/>
+                </button>
               )}
             </div>
-          )}
-
-          {/* Selected customer card */}
-          {cust && (
-            <div style={{ background:"var(--bg)", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:14, color:"var(--acc)", marginBottom:3 }}>{cust.name}</div>
-                <div style={{ fontSize:12, color:"var(--muted)", display:"flex", gap:16, flexWrap:"wrap" }}>
-                  <span>📞 {cust.phone||"—"}</span>
-                  <span>📍 {cust.address||"—"}</span>
-                </div>
+            {/* Dropdown KH cũ */}
+            {showNameDD && (
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:240, overflowY:"auto", boxShadow:"0 8px 24px #00000066" }}>
+                {nameFiltered.length > 0 && (
+                  <>
+                    <div style={{ padding:"6px 14px 4px", fontSize:10, color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+                      {custName.trim() ? "Kết quả tìm kiếm" : "Khách hàng gần đây"}
+                    </div>
+                    {nameFiltered.map(c=>(
+                      <div key={c.id} onMouseDown={()=>selectExistingCust(c)}
+                        style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
+                        onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        <div style={{ fontWeight:700, fontSize:13 }}>{c.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {c.code}</span></div>
+                        <div style={{ fontSize:11, color:"var(--muted)", display:"flex", gap:12, flexWrap:"wrap", marginTop:2 }}>
+                          <span>📞 {c.phone||"—"}</span>
+                          <span>📍 {c.address||"—"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {custName.trim() && nameFiltered.length === 0 && (
+                  <div style={{ padding:"12px 14px", fontSize:13, color:"var(--muted)", textAlign:"center" }}>
+                    Không tìm thấy — đang nhập khách mới
+                  </div>
+                )}
+                {custName.trim() && (
+                  <div style={{ padding:"8px 14px", borderTop:"1px solid var(--bdr)44", fontSize:12, color:"var(--acc)", background:"#00d4aa08" }}>
+                    ⚡ Sẽ tạo khách mới: <b>"{custName}"</b> nếu không chọn từ danh sách
+                  </div>
+                )}
               </div>
-              <button onMouseDown={()=>{ setCustId(""); setCustSearch(""); setShowNewCust(false); }} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:4 }}>
-                <Ic n="x" s={14}/>
-              </button>
+            )}
+          </div>
+
+          {/* SĐT + Địa chỉ — luôn hiển thị */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>SỐ ĐIỆN THOẠI</label>
+              <input className="input" value={custPhone} onChange={e=>{ setCustPhone(e.target.value); if(isExisting) setCustId(""); }}
+                placeholder="" style={{ fontSize:13 }}/>
             </div>
-          )}
-
-          {/* New customer form — shown when search text doesn't match any existing KH */}
-          {showNewCust && !cust && (
-            <div style={{ background:"var(--bg)", borderRadius:8, padding:"12px 14px", marginTop:8, border:"1px dashed var(--acc)55" }}>
-              <div style={{ fontSize:11, color:"var(--acc)", fontWeight:700, marginBottom:10 }}>⚡ Khách mới — điền thông tin:</div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                <div>
-                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>TÊN KHÁCH HÀNG *</label>
-                  <input className="input" value={newCustName} onChange={e=>setNewCustName(e.target.value)} placeholder="Tên KH..." style={{ fontSize:12 }}/>
-                </div>
-                <div>
-                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ ĐIỆN THOẠI</label>
-                  <input className="input" value={newCustPhone} onChange={e=>setNewCustPhone(e.target.value)} placeholder="09xx..." style={{ fontSize:12 }}/>
-                </div>
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"80px 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-                <div>
-                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ NHÀ</label>
-                  <input className="input" value={newCustSoNha} onChange={e=>setNewCustSoNha(e.target.value)} placeholder="123" style={{ fontSize:12 }}/>
-                </div>
-                <div>
-                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>ĐƯỜNG</label>
-                  <input className="input" value={newCustDuong} onChange={e=>setNewCustDuong(e.target.value)} placeholder="Đường..." style={{ fontSize:12 }}/>
-                </div>
-                <div>
-                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>PHƯỜNG</label>
-                  <input className="input" value={newCustPhuong} onChange={e=>setNewCustPhuong(e.target.value)} placeholder="Phường..." style={{ fontSize:12 }}/>
-                </div>
-                <div>
-                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>THÀNH PHỐ</label>
-                  <input className="input" value={newCustTP} onChange={e=>setNewCustTP(e.target.value)} placeholder="Hà Nội" style={{ fontSize:12 }}/>
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:8 }}>
-                <button className="btn btn-primary btn-sm" onClick={submitNewCust} disabled={!newCustName.trim()}>
-                  <Ic n="plus" s={13}/>Thêm & chọn KH này
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={()=>{ setShowNewCust(false); setCustSearch(""); }}>Bỏ qua</button>
-              </div>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>SỐ NHÀ</label>
+              <input className="input" value={custSoNha} onChange={e=>setCustSoNha(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>ĐƯỜNG</label>
+              <input className="input" value={custDuong} onChange={e=>setCustDuong(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
+            </div>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>PHƯỜNG</label>
+              <input className="input" value={custPhuong} onChange={e=>setCustPhuong(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
+            </div>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>THÀNH PHỐ</label>
+              <input className="input" value={custTP} onChange={e=>setCustTP(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
+            </div>
+          </div>
+          {isExisting && (
+            <div style={{ marginTop:8, fontSize:11, color:"var(--muted)", background:"var(--bg)", padding:"6px 10px", borderRadius:6 }}>
+              💡 Đang dùng thông tin khách cũ — sửa bất kỳ trường nào để cập nhật cho đơn này
             </div>
           )}
         </div>
@@ -1513,26 +1494,25 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
               <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Sản phẩm</span>
               <span style={{ fontSize:11, color:"var(--muted)" }}>({items.length})</span>
             </div>
-            {/* Chọn loại giá */}
             <div style={{ display:"flex", gap:4 }}>
               <button className={`btn btn-xs ${priceType==="price"?"btn-primary":"btn-ghost"}`} onClick={()=>setPriceType("price")}>Giá buôn</button>
               <button className={`btn btn-xs ${priceType==="retailPrice"?"btn-primary":"btn-ghost"}`} onClick={()=>setPriceType("retailPrice")}>Giá lẻ</button>
             </div>
           </div>
 
-          {/* Search product */}
           <div style={{ position:"relative", marginBottom:8 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
-              <input className="input" style={{ paddingLeft:34 }} placeholder="Tìm sản phẩm (SP đặc biệt: gõ tên rồi chọn 'Thêm SP này')..."
+              <input className="input" style={{ paddingLeft:34 }} placeholder="Tìm sản phẩm trong danh sách..."
                 value={prodSearch}
                 onFocus={()=>setShowProdDD(true)}
-                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); }}
-                onBlur={()=>setTimeout(()=>setShowProdDD(false),180)}
+                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); setPendingNewProd(null); }}
+                onBlur={()=>setTimeout(()=>setShowProdDD(false),200)}
               />
             </div>
             {showProdDD && prodSearch.trim() && (
-              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:260, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:300, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                {/* Danh sách SP có trong hệ thống */}
                 {prodFiltered.map(p=>(
                   <div key={p.id} onMouseDown={()=>addProduct(p)}
                     style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22", display:"flex", justifyContent:"space-between", alignItems:"center" }}
@@ -1545,18 +1525,38 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
                     <span className={`badge ${p.stock<30?"badge-red":p.stock<50?"badge-yellow":"badge-green"}`}>Kho: {p.stock}</span>
                   </div>
                 ))}
-                {/* Thêm SP đặc biệt/đặt riêng không có trong danh sách */}
-                <div onMouseDown={addCustomProduct}
-                  style={{ padding:"10px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, display:"flex", alignItems:"center", gap:6 }}
-                  onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <Ic n="plus" s={13}/> Thêm SP đặc biệt: "<b>{prodSearch}</b>"
+
+                {/* Dải SP không có trong danh sách — luôn hiện ở đáy, 2 nút cùng hàng */}
+                <div style={{ borderTop: prodFiltered.length>0 ? "1px solid var(--bdr)44" : "none", background:"#00d4aa05" }}>
+                  {prodFiltered.length === 0 && (
+                    <div style={{ padding:"10px 14px 4px", fontSize:12, color:"var(--muted)", textAlign:"center" }}>
+                      Không có sản phẩm phù hợp trong danh sách
+                    </div>
+                  )}
+                  <div style={{ padding:"8px 10px", display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12, color:"var(--muted)", flex:"0 0 auto" }}>
+                      <b style={{ color:"var(--text)" }}>"{prodSearch}"</b> chưa có —
+                    </span>
+                    {/* NÚT 1: Chỉ thêm vào đơn hàng hiện tại */}
+                    <button
+                      onMouseDown={e=>{ e.preventDefault(); addPendingOrderOnly(); }}
+                      className="btn btn-ghost btn-xs"
+                      style={{ border:"1.5px solid var(--bdr)", color:"var(--text)", fontSize:11, gap:4, flex:"1 1 auto", justifyContent:"center" }}>
+                      <Ic n="plus" s={12}/>+ Thêm vào đơn hàng
+                    </button>
+                    {/* NÚT 2: Thêm vào đơn VÀ lưu vào danh sách */}
+                    <button
+                      onMouseDown={e=>{ e.preventDefault(); addPendingAndSave(); }}
+                      className="btn btn-primary btn-xs"
+                      style={{ fontSize:11, gap:4, flex:"1 1 auto", justifyContent:"center" }}>
+                      <Ic n="save" s={12}/>+ Thêm vào danh sách SP
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Items table */}
           {items.length===0 && (
             <div style={{ textAlign:"center", padding:"16px 10px", color:"var(--muted)" }}>
               <span style={{ fontSize:12 }}>Tìm sản phẩm ở ô trên để thêm</span>
@@ -1564,7 +1564,6 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
           )}
           {items.length>0 && (
             <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-              {/* Header */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 60px 68px 90px 80px 22px", gap:5, padding:"0 4px" }}>
                 <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700 }}>SẢN PHẨM</span>
                 <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>ĐVT</span>
@@ -1578,91 +1577,67 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
                   <div>
                     <div style={{ fontWeight:600, fontSize:12, lineHeight:1.2 }}>{item.productName}</div>
                     {item.stock!==999 && <div style={{ fontSize:10, color:(item.stock||0)<item.qty?"var(--danger)":"var(--muted)" }}>Kho: {item.stock||"?"}</div>}
-                    {item.isCustom && <div style={{ fontSize:10, color:"var(--yellow)" }}>⚡ SP đặc biệt</div>}
                   </div>
-                  <input className="input" value={item.unit} onChange={e=>setItem(idx,"unit",e.target.value)} style={{ padding:"3px 5px", fontSize:11, textAlign:"center" }}/>
-                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"center" }}/>
-                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"right" }}/>
-                  <div style={{ fontWeight:700, fontSize:12, color:"var(--acc)", textAlign:"right" }}>{fmt(item.qty*item.price)}</div>
-                  <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={13}/></button>
+                  <div style={{ fontSize:11, color:"var(--muted)", textAlign:"center" }}>{item.unit}</div>
+                  <input type="number" min="1" className="input" style={{ textAlign:"center", padding:"4px 6px", fontSize:12 }} value={item.qty} onChange={e=>setItem(idx,"qty",Math.max(1,+e.target.value))}/>
+                  <input type="number" min="0" className="input" style={{ textAlign:"right", padding:"4px 6px", fontSize:12 }} value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)}/>
+                  <div style={{ textAlign:"right", fontSize:12, fontWeight:700 }}>{fmt(item.qty*item.price)}</div>
+                  <button onClick={()=>removeItem(idx)} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--danger)", padding:2 }}><Ic n="x" s={14}/></button>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* ═══ GHI CHÚ & GIAO HÀNG ═══ */}
+        {/* ═══ ĐÓNG GÓI & GIAO HÀNG ═══ */}
         <div style={boxS}>
           <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
             <Ic n="truck" s={14}/>
             <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Đóng gói & Giao hàng</span>
           </div>
-
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
             {[
-              { v:"self",    label:"🚛 Tự giao" },
-              { v:"3rd",     label:"📦 Gửi vận chuyển" },
+              { v:"self",    label:"🚚 Tự giao" },
+              { v:"courier", label:"📦 Gửi vận chuyển" },
               { v:"pickup",  label:"🏪 KH nhận tại kho" },
               { v:"later",   label:"⏳ Giao hàng sau" },
             ].map(opt=>(
-              <button key={opt.v}
-                className={`btn btn-sm ${shipping===opt.v?"btn-primary":"btn-ghost"}`}
-                onClick={()=>setShipping(opt.v)}
-                style={{ fontSize:12 }}>
-                {opt.label}
-              </button>
+              <button key={opt.v} className={`btn btn-xs ${shipping===opt.v?"btn-primary":"btn-ghost"}`} onClick={()=>setShipping(opt.v)}>{opt.label}</button>
             ))}
           </div>
-
-          <div><label className="label">Ghi chú đơn hàng</label>
-            <textarea className="input" rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="VD: Hàng dễ vỡ, gọi trước khi giao..." style={{ resize:"vertical" }} />
-          </div>
+          <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>GHI CHÚ ĐƠN HÀNG</label>
+          <textarea className="input" rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="VD: Hàng dễ vỡ, gọi trước khi giao..." style={{ resize:"vertical", minHeight:60 }}/>
         </div>
 
         {/* ═══ TỔNG TIỀN ═══ */}
-        <div style={{ ...boxS, borderColor:"var(--acc)33" }}>
-          <div className="form-row" style={{ marginBottom:12 }}>
-            <div><label className="label">Chiết khấu (đ)</label><input className="input" type="number" value={discount} onChange={e=>setDiscount(+e.target.value)} /></div>
-            <div><label className="label">Phí giao hàng (đ)</label><input className="input" type="number" value={shippingFee} onChange={e=>setShipFee(+e.target.value)} /></div>
-          </div>
-
-          <div style={{ display:"flex", flexDirection:"column", gap:4, fontSize:13, marginBottom:10 }}>
-            <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <span style={{ color:"var(--muted)" }}>Tổng tiền {items.length} sản phẩm:</span>
-              <span>{fmt(subtotal)}</span>
+        <div style={{ ...boxS, border:"1px solid var(--acc)33" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>CHIẾT KHẤU (đ)</label>
+              <input className="input" type="number" min="0" value={discount} onChange={e=>setDiscount(+e.target.value)}/>
             </div>
-            {discount>0 && <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <span style={{ color:"var(--muted)" }}>Chiết khấu:</span>
-              <span style={{ color:"var(--danger)" }}>-{fmt(discount)}</span>
-            </div>}
-            {shippingFee>0 && <div style={{ display:"flex", justifyContent:"space-between" }}>
-              <span style={{ color:"var(--muted)" }}>Phí giao hàng:</span>
-              <span>+{fmt(shippingFee)}</span>
-            </div>}
-            <div style={{ height:1, background:"var(--bdr)", margin:"4px 0" }} />
-            <div style={{ display:"flex", justifyContent:"space-between", fontWeight:800, fontSize:16 }}>
-              <span>Tổng cộng:</span>
-              <span style={{ color:"var(--acc)" }}>{fmt(total)}</span>
+            <div>
+              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>PHÍ GIAO HÀNG (đ)</label>
+              <input className="input" type="number" min="0" value={shippingFee} onChange={e=>setShipFee(+e.target.value)}/>
             </div>
           </div>
-
-          <div style={{ marginBottom:8 }}>
-            <label className="label">Khách trả ngay (đ)</label>
-            <input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)} style={{ fontSize:15, fontWeight:700 }} />
+          <div style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>Tổng tiền {items.length} sản phẩm: <span style={{ color:"var(--text)", fontWeight:600 }}>{fmt(subtotal)}</span></div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:20, fontWeight:800, marginBottom:12 }}>
+            <span>Tổng cộng:</span>
+            <span style={{ color:"var(--acc)" }}>{fmt(total)}</span>
           </div>
-
-          {debt>0 && <div style={{ background:"#f43f5e0f", border:"1px solid #f43f5e22", borderRadius:8, padding:"8px 12px", color:"var(--danger)", fontSize:13, fontWeight:600 }}>
-            ⚠ Khách phải trả: {fmt(debt)}
-          </div>}
-          {debt===0 && total>0 && <div style={{ background:"#10b9810f", border:"1px solid #10b98122", borderRadius:8, padding:"8px 12px", color:"var(--green)", fontSize:13, fontWeight:600 }}>
-            ✓ Khách đã trả đủ
-          </div>}
+          <div>
+            <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>KHÁCH TRẢ NGAY (đ)</label>
+            <input className="input" type="number" min="0" value={paid} onChange={e=>setPaid(+e.target.value)} style={{ fontSize:15, fontWeight:700 }}/>
+          </div>
+          {debt > 0 && <div style={{ marginTop:8, color:"var(--danger)", fontWeight:700, fontSize:13 }}>⚠ Còn nợ: {fmt(debt)}</div>}
+          {paid >= total && total > 0 && <div style={{ marginTop:8, color:"var(--green)", fontWeight:700, fontSize:13 }}>✓ Đã thanh toán đủ</div>}
         </div>
 
-        {/* ═══ BUTTONS ═══ */}
+        {/* ─── BUTTONS ─── */}
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
           <button className="btn btn-ghost" onClick={onClose}>Thoát</button>
-          <button className="btn btn-primary" onClick={save} disabled={!custId || items.length===0} style={{ padding:"10px 24px" }}>
+          <button className="btn btn-primary" disabled={!custName.trim() || items.length===0} onClick={save}>
             <Ic n="check" s={15}/>Tạo đơn hàng
           </button>
         </div>
@@ -1996,9 +1971,10 @@ function ProductsPage({ ctx }) {
 
   const del = (p) => {
     if(!can(u,"product_delete")){ showToast("Không có quyền xóa","error"); return; }
+    if(!window.confirm(`Xác nhận xóa sản phẩm?\n\n"${p.name}" (${p.code})\n\nHành động này không thể hoàn tác!`)) return;
     setProducts(ps=>ps.filter(x=>x.id!==p.id));
     addLog("product_delete",`Xóa sản phẩm ${p.code} — ${p.name}`);
-    showToast("Đã xóa");
+    showToast("Đã xóa sản phẩm");
   };
 
   const exportXLS = () => {
@@ -2326,9 +2302,10 @@ function CustomersPage({ ctx, setPage, setSelectedCustomerId }) {
                         </button>
                         {can(u,"customer_delete") && (
                           <button className="btn btn-danger btn-xs" onClick={()=>{
+                            if(!window.confirm(`Xác nhận xóa khách hàng?\n\n"${c.name}" (${c.code})\n\nHành động này không thể hoàn tác!`)) return;
                             setCusts(cs=>cs.filter(x=>x.id!==c.id));
                             addLog("customer_delete",`Xóa KH ${c.name}`);
-                            showToast("Đã xóa");
+                            showToast("Đã xóa khách hàng");
                           }}><Ic n="trash" s={13}/></button>
                         )}
                       </div>
