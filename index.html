@@ -1,9 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>SalesPro v4.2 — Nội Thất Gỗ Minh Duy</title>
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
-<meta http-equiv="Pragma" content="no-cache"/>
-<meta http-equiv="Expires" content="0"/>
+<title>SalesPro v4.3 — Nội Thất Gỗ Minh Duy</title>
 <style>html,body{margin:0;background:#0e1016}#root{min-height:100vh}#loader{display:flex;align-items:center;justify-content:center;min-height:100vh;color:#00d4aa;font-family:sans-serif;flex-direction:column;gap:16px}.spin{width:40px;height:40px;border:3px solid #1c2038;border-top-color:#00d4aa;border-radius:50%;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
 </head><body>
 <div id="root"><div id="loader"><div class="spin"></div><div>Đang khởi động...</div></div></div>
@@ -11,38 +8,6 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script>
-// ═══════════════════════════════════════════
-// FIREBASE CONFIG — khominhduy00
-// ═══════════════════════════════════════════
-const firebaseConfig = {
-  apiKey: "AIzaSyC9Mer2QatOGBFaXJ42B52WK7u49nt20ZI",
-  authDomain: "khominhduy00.firebaseapp.com",
-  databaseURL: "https://khominhduy00-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "khominhduy00",
-  storageBucket: "khominhduy00.firebasestorage.app",
-  messagingSenderId: "255998508572",
-  appId: "1:255998508572:web:f4e51436e1fdba4d9f29d9",
-  measurementId: "G-1LGLPH72GC"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-window.db = db;
-
-// Helper: lắng nghe realtime và trả về unsubscribe fn
-window.fbListen = (path, cb) => {
-  const ref = db.ref(path);
-  ref.on("value", snap => cb(snap.val()));
-  return () => ref.off("value");
-};
-// Helper: ghi dữ liệu
-window.fbSet = (path, data) => db.ref(path).set(data);
-// Helper: merge (update 1 phần)
-window.fbUpdate = (path, data) => db.ref(path).update(data);
-</script>
 <script type="text/babel" data-presets="env,react">
 const { useState, useEffect, useRef, useCallback } = React;
 // ════════════════════════════════════════════════════════
@@ -110,56 +75,6 @@ const nowStr = () => new Date().toLocaleString("vi-VN", { hour12: false });
 const todayStr = () => new Date().toISOString().split("T")[0];
 const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-// ════════════════════════════════════════════════════════
-// FIREBASE REALTIME HOOK — thay thế useLS cho dữ liệu chia sẻ
-// ════════════════════════════════════════════════════════
-function toArr(val) {
-  if (val === null || val === undefined) return [];
-  if (Array.isArray(val)) return val;
-  // Firebase lưu array dưới dạng object {0:{...}, 1:{...},...}
-  const keys = Object.keys(val).sort((a,b) => Number(a) - Number(b));
-  return keys.map(k => val[k]).filter(v => v !== null && v !== undefined);
-}
-
-function useFB(path, def) {
-  const isArr = Array.isArray(def);
-  const [v, sv] = useState(def);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    const ref = window.db.ref(path);
-    const handler = snap => {
-      const raw = snap.val();
-      if (raw === null || raw === undefined) {
-        // KHÔNG ghi seed nếu def là array rỗng — tránh xóa data thật!
-        // Chỉ ghi seed nếu def có data thật (users, customers, suppliers)
-        const hasRealSeed = isArr ? def.length > 0 : (def && Object.keys(def).length > 0);
-        if (hasRealSeed) {
-          ref.set(def).catch(console.error);
-        }
-        sv(def);
-      } else {
-        const parsed = isArr ? toArr(raw) : raw;
-        sv(parsed);
-      }
-      setReady(true);
-    };
-    ref.on("value", handler);
-    return () => ref.off("value", handler);
-  }, [path]);
-
-  const set = useCallback((upd) => {
-    sv(prev => {
-      const next = typeof upd === "function" ? upd(prev) : upd;
-      window.db.ref(path).set(next).catch(console.error);
-      return next;
-    });
-  }, [path]);
-
-  return [v, set, ready];
-}
-
-// useLS vẫn giữ cho session cục bộ (mỗi máy đăng nhập riêng)
 function useLS(key, def) {
   const [v, sv] = useState(() => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; }
@@ -185,19 +100,36 @@ const SEED_USERS = [
 ];
 
 const SEED_DATA = {
-  products: [],
+  products: [
+    { id:"p1", code:"SP001", name:"Nước suối Lavie 500ml", unit:"Thùng", stock:120, price:95000,  costPrice:75000,  category:"Nước uống", supplierId:"s1" },
+    { id:"p2", code:"SP002", name:"Coca-Cola 330ml",       unit:"Thùng", stock:48,  price:210000, costPrice:170000, category:"Nước ngọt", supplierId:"s2" },
+    { id:"p3", code:"SP003", name:"Mì Hảo Hảo",           unit:"Thùng", stock:60,  price:185000, costPrice:145000, category:"Thực phẩm", supplierId:"s3" },
+    { id:"p4", code:"SP004", name:"Dầu ăn Neptune 5L",    unit:"Can",   stock:40,  price:215000, costPrice:175000, category:"Thực phẩm", supplierId:"s3" },
+    { id:"p5", code:"SP005", name:"Pepsi 330ml",           unit:"Thùng", stock:72,  price:195000, costPrice:158000, category:"Nước ngọt", supplierId:"s2" },
+  ],
   customers: [
-    { id:"c1", code:"KH001", name:"Tạp hóa Bà Lan",      phone:"0901234567", address:"123, Lê Lợi, Quận 1, Hà Nội",        totalBought:45000000 },
-    { id:"c2", code:"KH002", name:"Siêu thị Mini Hùng",   phone:"0912345678", address:"456, Nguyễn Trãi, Quận 5, Hà Nội",   totalBought:128000000 },
-    { id:"c3", code:"KH003", name:"Cửa hàng Minh Châu",  phone:"0923456789", address:"789, Trần Hưng Đạo, Quận 10, Hà Nội", totalBought:67000000 },
+    { id:"c1", code:"KH001", name:"Tạp hóa Bà Lan",      phone:"0901234567", address:"123 Lê Lợi, Q1",        totalBought:45000000 },
+    { id:"c2", code:"KH002", name:"Siêu thị Mini Hùng",   phone:"0912345678", address:"456 Nguyễn Trãi, Q5",   totalBought:128000000 },
+    { id:"c3", code:"KH003", name:"Cửa hàng Minh Châu",  phone:"0923456789", address:"789 Trần Hưng Đạo, Q10", totalBought:67000000 },
   ],
   suppliers: [
     { id:"s1", code:"NCC001", name:"Lavie VN",    phone:"0281234567", contact:"Anh Tuấn", email:"lavie@vn",  address:"KCN Bình Dương" },
     { id:"s2", code:"NCC002", name:"Pepsico VN",  phone:"0289876543", contact:"Chị Mai",  email:"pepsi@vn",  address:"KCN Long An" },
     { id:"s3", code:"NCC003", name:"Acecook VN",  phone:"0285556666", contact:"Anh Dũng", email:"ace@vn",    address:"Bình Dương" },
   ],
-  orders: [],
-  purchases: [],
+  orders: [
+    // approved=true → đã xuất kho; approved=false → đang chờ duyệt
+    // delivered, returned, paid là trạng thái sau khi đã xuất
+    { id:"o1", code:"DH001", customerId:"c1", customerName:"Tạp hóa Bà Lan",    date:"2026-05-08", total:1850000, paid:0, approved:true,  delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u3", createdByName:"Lê Văn Bán Hàng",   items:[{productId:"p2",productName:"Coca-Cola 330ml",qty:5,price:210000,unit:"Thùng"},{productId:"p1",productName:"Nước suối Lavie",qty:8,price:95000,unit:"Thùng"}] },
+    { id:"o2", code:"DH002", customerId:"c2", customerName:"Siêu thị Mini Hùng", date:"2026-05-09", total:4200000, paid:4200000, approved:true,  delivered:true,  returned:false, isPaid:true,  status:"paid", createdBy:"u3", createdByName:"Lê Văn Bán Hàng",   items:[{productId:"p3",productName:"Mì Hảo Hảo",qty:10,price:185000,unit:"Thùng"},{productId:"p4",productName:"Dầu Neptune 5L",qty:8,price:215000,unit:"Can"}] },
+    { id:"o3", code:"DH003", customerId:"c3", customerName:"Cửa hàng Minh Châu", date:"2026-05-10", total:2750000, paid:0,       approved:false, delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u4", createdByName:"Phạm Thị Doanh Thu", items:[{productId:"p5",productName:"Pepsi 330ml",qty:10,price:195000,unit:"Thùng"},{productId:"p1",productName:"Nước suối Lavie",qty:5,price:95000,unit:"Thùng"}] },
+    { id:"o4", code:"DH004", customerId:"c1", customerName:"Tạp hóa Bà Lan",    date:"2026-05-10", total:1260000, paid:0,       approved:false, delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u1", createdByName:"Nguyễn Văn Chủ",     items:[{productId:"p3",productName:"Mì Hảo Hảo",qty:4,price:185000,unit:"Thùng"},{productId:"p5",productName:"Pepsi 330ml",qty:2,price:195000,unit:"Thùng"}] },
+    { id:"o5", code:"DH005", customerId:"c2", customerName:"Siêu thị Mini Hùng", date:"2026-05-10", total:2700000, paid:2700000, approved:false, delivered:false, returned:false, isPaid:false, status:"paid", createdBy:"u1", createdByName:"Nguyễn Văn Chủ",     items:[{productId:"p4",productName:"Dầu Neptune 5L",qty:12,price:215000,unit:"Can"},{productId:"p1",productName:"Nước suối Lavie",qty:1,price:95000,unit:"Thùng"}] },
+  ],
+  purchases: [
+    { id:"nh1", code:"NH001", supplierId:"s1", supplierName:"Lavie VN",   date:"2026-05-05", total:7500000, paid:7500000, status:"paid",    createdBy:"u2", createdByName:"Trần Thị Quản Lý", items:[{productId:"p1",productName:"Nước suối Lavie",qty:100,price:75000,unit:"Thùng"}] },
+    { id:"nh2", code:"NH002", supplierId:"s2", supplierName:"Pepsico VN", date:"2026-05-06", total:8500000, paid:5000000, status:"partial", createdBy:"u2", createdByName:"Trần Thị Quản Lý", items:[{productId:"p2",productName:"Coca-Cola",qty:30,price:170000,unit:"Thùng"},{productId:"p5",productName:"Pepsi 330ml",qty:20,price:158000,unit:"Thùng"}] },
+  ],
   auditLog: [
     { id:"a1", userId:"u1", userName:"Nguyễn Văn Chủ",   role:"owner",   action:"login",           detail:"Đăng nhập hệ thống",            time:"08/05/2026 07:58" },
     { id:"a2", userId:"u3", userName:"Lê Văn Bán Hàng",  role:"sale",    action:"order_create",    detail:"Tạo đơn hàng DH001 — 1.850.000đ", time:"08/05/2026 09:12" },
@@ -545,16 +477,13 @@ function App() {
     try { const s = localStorage.getItem("sp3_session"); return s ? JSON.parse(s) : null; } catch { return null; }
   });
 
-  // ── Dữ liệu chia sẻ — đồng bộ realtime qua Firebase ──
-  const [users,      setUsers,     usersReady]     = useFB("sp3/users",     SEED_USERS);
-  const [products,   setProducts,  productsReady]  = useFB("sp3/products",  SEED_DATA.products);
-  const [customers,  setCusts,     custsReady]     = useFB("sp3/customers", SEED_DATA.customers);
-  const [suppliers,  setSuppliers, suppliersReady] = useFB("sp3/suppliers", SEED_DATA.suppliers);
-  const [orders,     setOrders,    ordersReady]    = useFB("sp3/orders",    SEED_DATA.orders);
-  const [purchases,  setPurchases, purchasesReady] = useFB("sp3/purchases", SEED_DATA.purchases);
-  const [auditLog,   setAuditLog,  auditReady]     = useFB("sp3/audit",     SEED_DATA.auditLog);
-
-  const fbReady = usersReady && productsReady && custsReady && suppliersReady && ordersReady && purchasesReady && auditReady;
+  const [users,      setUsers]     = useLS("sp3_users",     SEED_USERS);
+  const [products,   setProducts]  = useLS("sp3_products",  SEED_DATA.products);
+  const [customers,  setCusts]     = useLS("sp3_customers", SEED_DATA.customers);
+  const [suppliers,  setSuppliers] = useLS("sp3_suppliers", SEED_DATA.suppliers);
+  const [orders,     setOrders]    = useLS("sp3_orders",    SEED_DATA.orders);
+  const [purchases,  setPurchases] = useLS("sp3_purchases", SEED_DATA.purchases);
+  const [auditLog,   setAuditLog]  = useLS("sp3_audit",     SEED_DATA.auditLog);
 
   const [page,      setPage]    = useState("dashboard");
   const [sideOpen,  setSideOpen] = useState(true);
@@ -593,17 +522,10 @@ function App() {
   };
 
   const reset = () => {
-    if(!window.confirm("Khôi phục dữ liệu mẫu? Toàn bộ dữ liệu trên Firebase sẽ bị xóa!")) return;
-    // Ghi seed data lên Firebase — tất cả client tự động cập nhật
-    window.db.ref("sp3").set({
-      users: SEED_USERS,
-      products: SEED_DATA.products,
-      customers: SEED_DATA.customers,
-      suppliers: SEED_DATA.suppliers,
-      orders: SEED_DATA.orders,
-      purchases: SEED_DATA.purchases,
-      audit: SEED_DATA.auditLog || []
-    });
+    ["sp3_users","sp3_products","sp3_customers","sp3_suppliers","sp3_orders","sp3_purchases","sp3_audit"].forEach(k=>localStorage.removeItem(k));
+    setUsers(SEED_USERS); setProducts(SEED_DATA.products); setCusts(SEED_DATA.customers);
+    setSuppliers(SEED_DATA.suppliers); setOrders(SEED_DATA.orders);
+    setPurchases(SEED_DATA.purchases); setAuditLog(SEED_DATA.auditLog);
     showToast("Đã khôi phục dữ liệu mẫu");
   };
 
@@ -619,15 +541,6 @@ function App() {
     if (updated && !updated.active) logout();
   }, [users]);
 
-  // Chờ Firebase kết nối xong mới render
-  if (!fbReady) return (
-    <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0e1016",flexDirection:"column",gap:16 }}>
-      <div style={{ width:44,height:44,border:"3px solid #1c2038",borderTopColor:"#00d4aa",borderRadius:"50%",animation:"s .8s linear infinite" }}/>
-      <div style={{ color:"#00d4aa",fontSize:14,fontWeight:700 }}>Đang kết nối dữ liệu...</div>
-      <div style={{ color:"#666",fontSize:11 }}>Firebase Realtime Database</div>
-    </div>
-  );
-
   if (!currentUser) return <><style>{CSS}</style><LoginPage users={users} onLogin={login} /></>;
 
   const u = currentUser;
@@ -642,6 +555,7 @@ function App() {
     { id:"report",    label:"Báo cáo",            icon:"bar",    perm:"report_view" },
     { id:"audit",     label:"Lịch sử thao tác",   icon:"log",    perm:"audit_view_own" },
     { id:"usermgmt",  label:"Quản lý tài khoản",  icon:"shield", perm:"user_manage" },
+    { id:"backup",    label:"Sao lưu dữ liệu",    icon:"save",   perm:"user_manage" },
   ].filter(n => !n.perm || can(u, n.perm));
 
   const ctx = { u, can, users, setUsers, products, setProducts, customers, setCusts, suppliers, setSuppliers, orders, setOrders, purchases, setPurchases, auditLog, setAuditLog, addLog, setModal, showToast, setPO, draftKey };
@@ -831,6 +745,7 @@ function App() {
             {page==="report"           && <ReportPage ctx={ctx} />}
             {page==="audit"            && <AuditPage ctx={ctx} />}
             {page==="usermgmt"         && <UserMgmtPage ctx={ctx} />}
+            {page==="backup"           && <BackupPage ctx={ctx} />}
           </div>
         </div>
       </div>
@@ -1047,7 +962,6 @@ function OrdersPage({ ctx, printInvoice, setPage, setSelectedOrderId, setSelecte
   const openNew = () => setModal(
     <OrderForm u={u} customers={customers} products={products}
       onAddCustomer={(nc) => { setCusts(cs=>[...cs,nc]); addLog("customer_create",`Thêm KH nhanh: ${nc.name}`); }}
-      onAddProduct={(np) => { setProducts(ps=>[...ps,np]); addLog("product_create",`Thêm SP từ đơn hàng: ${np.name}`); }}
       onSave={order=>{
         const code=`DH${String(orders.length+1).padStart(3,"0")}`;
         setOrders(os=>[{...order,id:uid(),code,approved:false,delivered:false,returned:false,isPaid:order.paid>=order.total},...os]);
@@ -1317,83 +1231,23 @@ function CustomerDetailPage({ ctx, customerId, setPage, setSelectedOrderId }) {
   );
 }
 
-function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onAddProduct }) {
+function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
   const draftKey = `sp3_draft_order_${u.id}`;
   const savedDraft = (() => { try { const s=localStorage.getItem(draftKey); return s?JSON.parse(s):null; } catch { return null; } })();
 
-  // ── Customer fields (always visible, name is search+new) ──
-  const [custId,      setCustId]    = useState(savedDraft?.custId || "");
-  const [custName,    setCustName]  = useState("");
-  const [custPhone,   setCustPhone] = useState("");
-  const [custSoNha,   setCustSoNha] = useState("");
-  const [custDuong,   setCustDuong] = useState("");
-  const [custPhuong,  setCustPhuong]= useState("");
-  const [custTP,      setCustTP]    = useState("");
-  const [showNameDD,  setShowNameDD]= useState(false);
-
-  // Pre-fill if draft had a saved custId
-  const [draftLoaded, setDraftLoaded] = useState(false);
-  React.useEffect(() => {
-    if (draftLoaded) return;
-    if (savedDraft?.custId) {
-      const c = customers.find(x=>x.id===savedDraft.custId);
-      if (c) {
-        const parts = (c.address||"").split(",").map(s=>s.trim());
-        setCustName(c.name); setCustPhone(c.phone||"");
-        setCustSoNha(parts[0]||""); setCustDuong(parts[1]||"");
-        setCustPhuong(parts[2]||""); setCustTP(parts[3]||"");
-      }
-    }
-    setDraftLoaded(true);
-  }, []);
-
-  // Filter customers by name/phone/code
-  const nameFiltered = custName.trim().length > 0
-    ? customers.filter(c =>
-        c.name.toLowerCase().includes(custName.toLowerCase()) ||
-        (c.phone||"").includes(custName) ||
-        (c.code||"").toLowerCase().includes(custName.toLowerCase())
-      ).slice(0, 8)
-    : customers.slice(0, 6); // show recent 6 when field focused empty
-
-  const selectExistingCust = (c) => {
-    const parts = (c.address||"").split(",").map(s=>s.trim());
-    setCustId(c.id);
-    setCustName(c.name);
-    setCustPhone(c.phone||"");
-    setCustSoNha(parts[0]||"");
-    setCustDuong(parts[1]||"");
-    setCustPhuong(parts[2]||"");
-    setCustTP(parts[3]||"");
-    setShowNameDD(false);
-  };
-
-  const clearCust = () => {
-    setCustId(""); setCustName(""); setCustPhone("");
-    setCustSoNha(""); setCustDuong(""); setCustPhuong(""); setCustTP("");
-    setShowNameDD(false);
-  };
-
-  // ── Products ──
-  const [prodSearch,    setProdSearch]   = useState("");
-  const [showProdDD,    setShowProdDD]   = useState(false);
-  const [priceType,     setPriceType]    = useState("price");
-  const [items,         setItems]        = useState(savedDraft?.items || []);
-  const [paid,          setPaid]         = useState(savedDraft?.paid || 0);
-  const [discount,      setDiscount]     = useState(savedDraft?.discount || 0);
-  const [shippingFee,   setShipFee]      = useState(savedDraft?.shippingFee || 0);
-  const [shipping,      setShipping]     = useState(savedDraft?.shipping || "self");
-  const [note,          setNote]         = useState(savedDraft?.note || "");
-  const [hasDraft,      setHasDraft]     = useState(!!savedDraft);
-  // SP mới chưa có trong danh sách — tên đang gõ, chờ người dùng chọn "Chỉ đơn này" hay "Lưu vào danh sách"
-  const [pendingNewProd, setPendingNewProd] = useState(null); // { name, unit, price, costPrice, category }
-
-  // ESC to close
-  React.useEffect(() => {
-    const handler = (e) => { if(e.key==="Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  const [custSearch,  setCustSearch]  = useState("");
+  const [custId,      setCustId]      = useState(savedDraft?.custId || "");
+  const [showCustDD,  setShowCustDD]  = useState(false);
+  const [prodSearch,  setProdSearch]  = useState("");
+  const [showProdDD,  setShowProdDD]  = useState(false);
+  const [priceType,   setPriceType]   = useState("price");
+  const [items,       setItems]       = useState(savedDraft?.items || []);
+  const [paid,        setPaid]        = useState(savedDraft?.paid || 0);
+  const [discount,    setDiscount]    = useState(savedDraft?.discount || 0);
+  const [shippingFee, setShipFee]     = useState(savedDraft?.shippingFee || 0);
+  const [shipping,    setShipping]    = useState(savedDraft?.shipping || "self");
+  const [note,        setNote]        = useState(savedDraft?.note || "");
+  const [hasDraft,    setHasDraft]    = useState(!!savedDraft);
 
   const saveDraft = () => {
     localStorage.setItem(draftKey, JSON.stringify({ custId, items, paid, discount, shippingFee, shipping, note }));
@@ -1405,7 +1259,53 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
   const total = Math.max(0, subtotal - discount + shippingFee);
   const debt = Math.max(0, total - paid);
 
-  // Product search
+  // New customer form state
+  const [newCustName,   setNewCustName]   = useState(custSearch);
+  const [newCustPhone,  setNewCustPhone]  = useState("");
+  const [newCustSoNha,  setNewCustSoNha]  = useState("");
+  const [newCustDuong,  setNewCustDuong]  = useState("");
+  const [newCustPhuong, setNewCustPhuong] = useState("");
+  const [newCustTP,     setNewCustTP]     = useState("");
+  const [showNewCust,   setShowNewCust]   = useState(false);
+
+  // Customer search — filter by name OR phone OR address. Show dropdown only when typing
+  const custFiltered = custSearch.trim()
+    ? customers.filter(c =>
+        c.name.toLowerCase().includes(custSearch.toLowerCase()) ||
+        (c.phone||"").includes(custSearch) ||
+        (c.code||"").toLowerCase().includes(custSearch.toLowerCase())
+      ).slice(0, 8)
+    : [];
+
+  const selectCustomer = (c) => { setCustId(c.id); setCustSearch(""); setShowCustDD(false); setShowNewCust(false); };
+
+  const handleCustInput = (val) => {
+    setCustSearch(val);
+    setCustId("");
+    setShowCustDD(true);
+    setNewCustName(val);
+    // Hide new-cust form while results match
+    setShowNewCust(false);
+  };
+
+  // When dropdown closes without picking — show new customer form if search has text
+  const handleCustBlur = () => {
+    setTimeout(() => {
+      setShowCustDD(false);
+      if (custSearch.trim() && !custId) setShowNewCust(true);
+    }, 180);
+  };
+
+  const submitNewCust = () => {
+    const addr = [newCustSoNha, newCustDuong, newCustPhuong, newCustTP].filter(Boolean).join(", ");
+    const nc = { id:uid(), code:`KH${String(customers.length+1).padStart(3,"0")}`, name:newCustName, phone:newCustPhone, address:addr, totalBought:0 };
+    onAddCustomer(nc);
+    setCustId(nc.id);
+    setShowNewCust(false);
+    setCustSearch("");
+  };
+
+  // Product search filter
   const prodFiltered = prodSearch.trim()
     ? products.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()) || (p.code||"").toLowerCase().includes(prodSearch.toLowerCase())).slice(0,10)
     : [];
@@ -1419,58 +1319,26 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
   };
 
   const addCustomProduct = () => {
-    // Kept for compatibility — direct add without saving
     if (!prodSearch.trim()) return;
-    setItems(is=>[...is, { productId:"custom_"+uid(), productName:prodSearch.trim(), unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
+    // Thêm vào đơn ngay — không bắt buộc thêm vào danh sách
+    setItems(is=>[...is, { productId:"custom_"+uid(), productName:prodSearch, unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
     setProdSearch(""); setShowProdDD(false);
-  };
-
-  // Thêm vào đơn này thôi, không lưu danh sách
-  const addPendingOrderOnly = () => {
-    const name = (pendingNewProd?.name || prodSearch).trim();
-    if (!name) return;
-    setItems(is=>[...is, { productId:"custom_"+uid(), productName:name, unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
-    setPendingNewProd(null); setProdSearch(""); setShowProdDD(false);
-  };
-
-  // Thêm vào đơn VÀ lưu vào danh sách sản phẩm
-  const addPendingAndSave = () => {
-    const name = (pendingNewProd?.name || prodSearch).trim();
-    if (!name) return;
-    const newId = uid();
-    const words = name.split(/\s+/);
-    const prefix = words.map(w=>w.charAt(0).toUpperCase()).join("").slice(0,4);
-    const autoCode = prefix + String(products.length+1).padStart(2,"0");
-    const np = { id:newId, code:autoCode, name, unit:"Cái", stock:0, price:0, retailPrice:0, costPrice:0, category:"Khác", supplierId:null };
-    onAddProduct(np);
-    setItems(is=>[...is, { productId:newId, productName:name, unit:"Cái", qty:1, price:0, stock:0 }]);
-    setPendingNewProd(null); setProdSearch(""); setShowProdDD(false);
   };
 
   const setItem = (idx,k,v) => setItems(is=>is.map((x,i)=>i===idx?{...x,[k]:v}:x));
   const removeItem = (idx) => setItems(is=>is.filter((_,i)=>i!==idx));
 
   const save = () => {
-    if (!custName.trim()) { alert("Vui lòng nhập tên khách hàng!"); return; }
-    if (items.length === 0) { alert("Vui lòng thêm ít nhất 1 sản phẩm!"); return; }
-
-    let finalCustId = custId;
-    // Nếu là khách mới (chưa có custId) → tạo mới
-    if (!finalCustId) {
-      const addr = [custSoNha, custDuong, custPhuong, custTP].filter(Boolean).join(", ");
-      const nc = { id:uid(), code:`KH${String(customers.length+1).padStart(3,"0")}`, name:custName.trim(), phone:custPhone.trim(), address:addr, totalBought:0 };
-      onAddCustomer(nc);
-      finalCustId = nc.id;
-    }
-
-    const cust2 = customers.find(c=>c.id===finalCustId) || { name: custName.trim() };
+    if (!custId) return;
+    if (items.length === 0) return;
+    const cust2 = customers.find(c=>c.id===custId);
     const enriched = items.map(i=>({ productId:i.productId, productName:i.productName, unit:i.unit, qty:i.qty, price:i.price }));
-    onSave({ customerId:finalCustId, customerName:cust2?.name||custName.trim(), date:todayStr(), total, paid:Math.min(paid,total), status: paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, discount, shippingFee, shipping, note, createdBy:u.id, createdByName:u.name });
+    onSave({ customerId:custId, customerName:cust2?.name, date:todayStr(), total, paid:Math.min(paid,total), status: paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, discount, shippingFee, shipping, note, createdBy:u.id, createdByName:u.name });
     clearDraft();
   };
 
+  const cust = customers.find(c=>c.id===custId);
   const boxS = { background:"var(--sur2)", borderRadius:10, padding:"12px 14px", border:"1px solid var(--bdr)" };
-  const isExisting = !!custId;
 
   return (
     <div style={{ maxWidth:820 }}>
@@ -1478,7 +1346,7 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
         <h3 style={{ fontWeight:800, fontSize:17 }}>Tạo đơn hàng mới</h3>
         <div style={{ display:"flex", gap:8 }}>
           <button className="btn btn-ghost btn-sm" onClick={saveDraft}><Ic n="save" s={14}/>Lưu nháp</button>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} title="Thoát (ESC)"><Ic n="x"/>Thoát</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
         </div>
       </div>
       {hasDraft && <div style={{ fontSize:12, color:"var(--acc)", background:"#00d4aa0f", padding:"6px 12px", borderRadius:8, marginBottom:12, border:"1px solid #00d4aa22" }}>📂 Bản nháp đã lưu — <button onClick={clearDraft} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",fontSize:12,fontFamily:"inherit" }}>Xóa nháp</button></div>}
@@ -1487,104 +1355,97 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
 
         {/* ═══ THÔNG TIN KHÁCH HÀNG ═══ */}
         <div style={boxS}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-              <Ic n="users" s={14}/>
-              <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Thông tin khách hàng</span>
-            </div>
-            {isExisting && (
-              <span className="badge badge-green" style={{ fontSize:10 }}>✓ Khách cũ</span>
-            )}
-            {!isExisting && custName.trim() && (
-              <span className="badge badge-yellow" style={{ fontSize:10 }}>⚡ Khách mới</span>
-            )}
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+            <Ic n="users" s={14}/>
+            <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Thông tin khách hàng</span>
           </div>
 
-          {/* TÊN — ô tìm kiếm tổng hợp */}
-          <div style={{ position:"relative", marginBottom:10 }}>
-            <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>
-              TÊN KHÁCH HÀNG * &nbsp;<span style={{ fontWeight:400, color:"var(--muted)", fontSize:10, textTransform:"none" }}>(gõ để tìm KH cũ hoặc nhập tên mới)</span>
-            </label>
+          {/* Search box */}
+          {!cust && (
             <div style={{ position:"relative" }}>
-              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
-              <input className="input" style={{ paddingLeft:34, paddingRight: isExisting?36:13, fontWeight: isExisting?700:400, color: isExisting?"var(--acc)":"var(--text)" }}
-                placeholder="Gõ tên hoặc SĐT để tìm KH cũ / nhập tên mới..."
-                value={custName}
-                onChange={e=>{ setCustName(e.target.value); setCustId(""); setShowNameDD(true); }}
-                onFocus={()=>setShowNameDD(true)}
-                onBlur={()=>setTimeout(()=>setShowNameDD(false), 180)}
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)", zIndex:1 }}><Ic n="search" s={14}/></span>
+              <input className="input" style={{ paddingLeft:34 }}
+                placeholder="Tìm tên, SĐT, mã KH... hoặc nhập tên khách mới"
+                value={custSearch}
+                onChange={e=>handleCustInput(e.target.value)}
+                onFocus={()=>{ if(custSearch.trim()) setShowCustDD(true); }}
+                onBlur={handleCustBlur}
               />
-              {custName && (
-                <button onMouseDown={clearCust} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"var(--muted)", padding:4 }}>
-                  <Ic n="x" s={13}/>
-                </button>
+              {/* Dropdown results */}
+              {showCustDD && custFiltered.length>0 && (
+                <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:240, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                  {custFiltered.map(c=>(
+                    <div key={c.id}
+                      onMouseDown={()=>selectCustomer(c)}
+                      style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{c.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {c.code}</span></div>
+                      <div style={{ fontSize:11, color:"var(--muted)", display:"flex", gap:12, flexWrap:"wrap" }}>
+                        <span>📞 {c.phone||"—"}</span>
+                        <span>📍 {c.address||"—"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-            {/* Dropdown KH cũ */}
-            {showNameDD && (
-              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:240, overflowY:"auto", boxShadow:"0 8px 24px #00000066" }}>
-                {nameFiltered.length > 0 && (
-                  <>
-                    <div style={{ padding:"6px 14px 4px", fontSize:10, color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>
-                      {custName.trim() ? "Kết quả tìm kiếm" : "Khách hàng gần đây"}
-                    </div>
-                    {nameFiltered.map(c=>(
-                      <div key={c.id} onMouseDown={()=>selectExistingCust(c)}
-                        style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
-                        onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
-                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                        <div style={{ fontWeight:700, fontSize:13 }}>{c.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {c.code}</span></div>
-                        <div style={{ fontSize:11, color:"var(--muted)", display:"flex", gap:12, flexWrap:"wrap", marginTop:2 }}>
-                          <span>📞 {c.phone||"—"}</span>
-                          <span>📍 {c.address||"—"}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {custName.trim() && nameFiltered.length === 0 && (
-                  <div style={{ padding:"12px 14px", fontSize:13, color:"var(--muted)", textAlign:"center" }}>
-                    Không tìm thấy — đang nhập khách mới
-                  </div>
-                )}
-                {custName.trim() && (
-                  <div style={{ padding:"8px 14px", borderTop:"1px solid var(--bdr)44", fontSize:12, color:"var(--acc)", background:"#00d4aa08" }}>
-                    ⚡ Sẽ tạo khách mới: <b>"{custName}"</b> nếu không chọn từ danh sách
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          )}
 
-          {/* SĐT + Địa chỉ — luôn hiển thị */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>SỐ ĐIỆN THOẠI</label>
-              <input className="input" value={custPhone} onChange={e=>{ setCustPhone(e.target.value); if(isExisting) setCustId(""); }}
-                placeholder="" style={{ fontSize:13 }}/>
+          {/* Selected customer card */}
+          {cust && (
+            <div style={{ background:"var(--bg)", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:14, color:"var(--acc)", marginBottom:3 }}>{cust.name}</div>
+                <div style={{ fontSize:12, color:"var(--muted)", display:"flex", gap:16, flexWrap:"wrap" }}>
+                  <span>📞 {cust.phone||"—"}</span>
+                  <span>📍 {cust.address||"—"}</span>
+                </div>
+              </div>
+              <button onMouseDown={()=>{ setCustId(""); setCustSearch(""); setShowNewCust(false); }} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:4 }}>
+                <Ic n="x" s={14}/>
+              </button>
             </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>SỐ NHÀ</label>
-              <input className="input" value={custSoNha} onChange={e=>setCustSoNha(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
-            </div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>ĐƯỜNG</label>
-              <input className="input" value={custDuong} onChange={e=>setCustDuong(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
-            </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>PHƯỜNG</label>
-              <input className="input" value={custPhuong} onChange={e=>setCustPhuong(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
-            </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>THÀNH PHỐ</label>
-              <input className="input" value={custTP} onChange={e=>setCustTP(e.target.value)} placeholder="" style={{ fontSize:13 }}/>
-            </div>
-          </div>
-          {isExisting && (
-            <div style={{ marginTop:8, fontSize:11, color:"var(--muted)", background:"var(--bg)", padding:"6px 10px", borderRadius:6 }}>
-              💡 Đang dùng thông tin khách cũ — sửa bất kỳ trường nào để cập nhật cho đơn này
+          )}
+
+          {/* New customer form — shown when search text doesn't match any existing KH */}
+          {showNewCust && !cust && (
+            <div style={{ background:"var(--bg)", borderRadius:8, padding:"12px 14px", marginTop:8, border:"1px dashed var(--acc)55" }}>
+              <div style={{ fontSize:11, color:"var(--acc)", fontWeight:700, marginBottom:10 }}>⚡ Khách mới — điền thông tin:</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>TÊN KHÁCH HÀNG *</label>
+                  <input className="input" value={newCustName} onChange={e=>setNewCustName(e.target.value)} placeholder="Tên KH..." style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ ĐIỆN THOẠI</label>
+                  <input className="input" value={newCustPhone} onChange={e=>setNewCustPhone(e.target.value)} placeholder="09xx..." style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"80px 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ NHÀ</label>
+                  <input className="input" value={newCustSoNha} onChange={e=>setNewCustSoNha(e.target.value)} placeholder="123" style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>ĐƯỜNG</label>
+                  <input className="input" value={newCustDuong} onChange={e=>setNewCustDuong(e.target.value)} placeholder="Đường..." style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>PHƯỜNG</label>
+                  <input className="input" value={newCustPhuong} onChange={e=>setNewCustPhuong(e.target.value)} placeholder="Phường..." style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>THÀNH PHỐ</label>
+                  <input className="input" value={newCustTP} onChange={e=>setNewCustTP(e.target.value)} placeholder="Hà Nội" style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn btn-primary btn-sm" onClick={submitNewCust} disabled={!newCustName.trim()}>
+                  <Ic n="plus" s={13}/>Thêm & chọn KH này
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>{ setShowNewCust(false); setCustSearch(""); }}>Bỏ qua</button>
+              </div>
             </div>
           )}
         </div>
@@ -1597,25 +1458,26 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
               <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Sản phẩm</span>
               <span style={{ fontSize:11, color:"var(--muted)" }}>({items.length})</span>
             </div>
+            {/* Chọn loại giá */}
             <div style={{ display:"flex", gap:4 }}>
               <button className={`btn btn-xs ${priceType==="price"?"btn-primary":"btn-ghost"}`} onClick={()=>setPriceType("price")}>Giá buôn</button>
               <button className={`btn btn-xs ${priceType==="retailPrice"?"btn-primary":"btn-ghost"}`} onClick={()=>setPriceType("retailPrice")}>Giá lẻ</button>
             </div>
           </div>
 
+          {/* Search product */}
           <div style={{ position:"relative", marginBottom:8 }}>
             <div style={{ position:"relative" }}>
               <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
-              <input className="input" style={{ paddingLeft:34 }} placeholder="Tìm sản phẩm trong danh sách..."
+              <input className="input" style={{ paddingLeft:34 }} placeholder="Tìm sản phẩm (SP đặc biệt: gõ tên rồi chọn 'Thêm SP này')..."
                 value={prodSearch}
                 onFocus={()=>setShowProdDD(true)}
-                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); setPendingNewProd(null); }}
-                onBlur={()=>setTimeout(()=>setShowProdDD(false),200)}
+                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); }}
+                onBlur={()=>setTimeout(()=>setShowProdDD(false),180)}
               />
             </div>
             {showProdDD && prodSearch.trim() && (
-              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:300, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
-                {/* Danh sách SP có trong hệ thống */}
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:260, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
                 {prodFiltered.map(p=>(
                   <div key={p.id} onMouseDown={()=>addProduct(p)}
                     style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22", display:"flex", justifyContent:"space-between", alignItems:"center" }}
@@ -1628,38 +1490,18 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
                     <span className={`badge ${p.stock<30?"badge-red":p.stock<50?"badge-yellow":"badge-green"}`}>Kho: {p.stock}</span>
                   </div>
                 ))}
-
-                {/* Dải SP không có trong danh sách — luôn hiện ở đáy, 2 nút cùng hàng */}
-                <div style={{ borderTop: prodFiltered.length>0 ? "1px solid var(--bdr)44" : "none", background:"#00d4aa05" }}>
-                  {prodFiltered.length === 0 && (
-                    <div style={{ padding:"10px 14px 4px", fontSize:12, color:"var(--muted)", textAlign:"center" }}>
-                      Không có sản phẩm phù hợp trong danh sách
-                    </div>
-                  )}
-                  <div style={{ padding:"8px 10px", display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                    <span style={{ fontSize:12, color:"var(--muted)", flex:"0 0 auto" }}>
-                      <b style={{ color:"var(--text)" }}>"{prodSearch}"</b> chưa có —
-                    </span>
-                    {/* NÚT 1: Chỉ thêm vào đơn hàng hiện tại */}
-                    <button
-                      onMouseDown={e=>{ e.preventDefault(); addPendingOrderOnly(); }}
-                      className="btn btn-ghost btn-xs"
-                      style={{ border:"1.5px solid var(--bdr)", color:"var(--text)", fontSize:11, gap:4, flex:"1 1 auto", justifyContent:"center" }}>
-                      <Ic n="plus" s={12}/>+ Thêm vào đơn hàng
-                    </button>
-                    {/* NÚT 2: Thêm vào đơn VÀ lưu vào danh sách */}
-                    <button
-                      onMouseDown={e=>{ e.preventDefault(); addPendingAndSave(); }}
-                      className="btn btn-primary btn-xs"
-                      style={{ fontSize:11, gap:4, flex:"1 1 auto", justifyContent:"center" }}>
-                      <Ic n="save" s={12}/>+ Thêm vào danh sách SP
-                    </button>
-                  </div>
+                {/* Thêm SP đặc biệt/đặt riêng không có trong danh sách */}
+                <div onMouseDown={addCustomProduct}
+                  style={{ padding:"10px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, display:"flex", alignItems:"center", gap:6 }}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <Ic n="plus" s={13}/> Thêm SP đặc biệt: "<b>{prodSearch}</b>"
                 </div>
               </div>
             )}
           </div>
 
+          {/* Items table */}
           {items.length===0 && (
             <div style={{ textAlign:"center", padding:"16px 10px", color:"var(--muted)" }}>
               <span style={{ fontSize:12 }}>Tìm sản phẩm ở ô trên để thêm</span>
@@ -1667,6 +1509,7 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
           )}
           {items.length>0 && (
             <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {/* Header */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 60px 68px 90px 80px 22px", gap:5, padding:"0 4px" }}>
                 <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700 }}>SẢN PHẨM</span>
                 <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>ĐVT</span>
@@ -1680,67 +1523,91 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer, onA
                   <div>
                     <div style={{ fontWeight:600, fontSize:12, lineHeight:1.2 }}>{item.productName}</div>
                     {item.stock!==999 && <div style={{ fontSize:10, color:(item.stock||0)<item.qty?"var(--danger)":"var(--muted)" }}>Kho: {item.stock||"?"}</div>}
+                    {item.isCustom && <div style={{ fontSize:10, color:"var(--yellow)" }}>⚡ SP đặc biệt</div>}
                   </div>
-                  <div style={{ fontSize:11, color:"var(--muted)", textAlign:"center" }}>{item.unit}</div>
-                  <input type="number" min="1" className="input" style={{ textAlign:"center", padding:"4px 6px", fontSize:12 }} value={item.qty} onChange={e=>setItem(idx,"qty",Math.max(1,+e.target.value))}/>
-                  <input type="number" min="0" className="input" style={{ textAlign:"right", padding:"4px 6px", fontSize:12 }} value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)}/>
-                  <div style={{ textAlign:"right", fontSize:12, fontWeight:700 }}>{fmt(item.qty*item.price)}</div>
-                  <button onClick={()=>removeItem(idx)} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--danger)", padding:2 }}><Ic n="x" s={14}/></button>
+                  <input className="input" value={item.unit} onChange={e=>setItem(idx,"unit",e.target.value)} style={{ padding:"3px 5px", fontSize:11, textAlign:"center" }}/>
+                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"center" }}/>
+                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"right" }}/>
+                  <div style={{ fontWeight:700, fontSize:12, color:"var(--acc)", textAlign:"right" }}>{fmt(item.qty*item.price)}</div>
+                  <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={13}/></button>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* ═══ ĐÓNG GÓI & GIAO HÀNG ═══ */}
+        {/* ═══ GHI CHÚ & GIAO HÀNG ═══ */}
         <div style={boxS}>
           <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
             <Ic n="truck" s={14}/>
             <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Đóng gói & Giao hàng</span>
           </div>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
             {[
-              { v:"self",    label:"🚚 Tự giao" },
-              { v:"courier", label:"📦 Gửi vận chuyển" },
+              { v:"self",    label:"🚛 Tự giao" },
+              { v:"3rd",     label:"📦 Gửi vận chuyển" },
               { v:"pickup",  label:"🏪 KH nhận tại kho" },
               { v:"later",   label:"⏳ Giao hàng sau" },
             ].map(opt=>(
-              <button key={opt.v} className={`btn btn-xs ${shipping===opt.v?"btn-primary":"btn-ghost"}`} onClick={()=>setShipping(opt.v)}>{opt.label}</button>
+              <button key={opt.v}
+                className={`btn btn-sm ${shipping===opt.v?"btn-primary":"btn-ghost"}`}
+                onClick={()=>setShipping(opt.v)}
+                style={{ fontSize:12 }}>
+                {opt.label}
+              </button>
             ))}
           </div>
-          <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>GHI CHÚ ĐƠN HÀNG</label>
-          <textarea className="input" rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="VD: Hàng dễ vỡ, gọi trước khi giao..." style={{ resize:"vertical", minHeight:60 }}/>
+
+          <div><label className="label">Ghi chú đơn hàng</label>
+            <textarea className="input" rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="VD: Hàng dễ vỡ, gọi trước khi giao..." style={{ resize:"vertical" }} />
+          </div>
         </div>
 
         {/* ═══ TỔNG TIỀN ═══ */}
-        <div style={{ ...boxS, border:"1px solid var(--acc)33" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>CHIẾT KHẤU (đ)</label>
-              <input className="input" type="number" min="0" value={discount} onChange={e=>setDiscount(+e.target.value)}/>
+        <div style={{ ...boxS, borderColor:"var(--acc)33" }}>
+          <div className="form-row" style={{ marginBottom:12 }}>
+            <div><label className="label">Chiết khấu (đ)</label><input className="input" type="number" value={discount} onChange={e=>setDiscount(+e.target.value)} /></div>
+            <div><label className="label">Phí giao hàng (đ)</label><input className="input" type="number" value={shippingFee} onChange={e=>setShipFee(+e.target.value)} /></div>
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:4, fontSize:13, marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:"var(--muted)" }}>Tổng tiền {items.length} sản phẩm:</span>
+              <span>{fmt(subtotal)}</span>
             </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>PHÍ GIAO HÀNG (đ)</label>
-              <input className="input" type="number" min="0" value={shippingFee} onChange={e=>setShipFee(+e.target.value)}/>
+            {discount>0 && <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:"var(--muted)" }}>Chiết khấu:</span>
+              <span style={{ color:"var(--danger)" }}>-{fmt(discount)}</span>
+            </div>}
+            {shippingFee>0 && <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:"var(--muted)" }}>Phí giao hàng:</span>
+              <span>+{fmt(shippingFee)}</span>
+            </div>}
+            <div style={{ height:1, background:"var(--bdr)", margin:"4px 0" }} />
+            <div style={{ display:"flex", justifyContent:"space-between", fontWeight:800, fontSize:16 }}>
+              <span>Tổng cộng:</span>
+              <span style={{ color:"var(--acc)" }}>{fmt(total)}</span>
             </div>
           </div>
-          <div style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>Tổng tiền {items.length} sản phẩm: <span style={{ color:"var(--text)", fontWeight:600 }}>{fmt(subtotal)}</span></div>
-          <div style={{ display:"flex", justifyContent:"space-between", fontSize:20, fontWeight:800, marginBottom:12 }}>
-            <span>Tổng cộng:</span>
-            <span style={{ color:"var(--acc)" }}>{fmt(total)}</span>
+
+          <div style={{ marginBottom:8 }}>
+            <label className="label">Khách trả ngay (đ)</label>
+            <input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)} style={{ fontSize:15, fontWeight:700 }} />
           </div>
-          <div>
-            <label style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", display:"block", marginBottom:4 }}>KHÁCH TRẢ NGAY (đ)</label>
-            <input className="input" type="number" min="0" value={paid} onChange={e=>setPaid(+e.target.value)} style={{ fontSize:15, fontWeight:700 }}/>
-          </div>
-          {debt > 0 && <div style={{ marginTop:8, color:"var(--danger)", fontWeight:700, fontSize:13 }}>⚠ Còn nợ: {fmt(debt)}</div>}
-          {paid >= total && total > 0 && <div style={{ marginTop:8, color:"var(--green)", fontWeight:700, fontSize:13 }}>✓ Đã thanh toán đủ</div>}
+
+          {debt>0 && <div style={{ background:"#f43f5e0f", border:"1px solid #f43f5e22", borderRadius:8, padding:"8px 12px", color:"var(--danger)", fontSize:13, fontWeight:600 }}>
+            ⚠ Khách phải trả: {fmt(debt)}
+          </div>}
+          {debt===0 && total>0 && <div style={{ background:"#10b9810f", border:"1px solid #10b98122", borderRadius:8, padding:"8px 12px", color:"var(--green)", fontSize:13, fontWeight:600 }}>
+            ✓ Khách đã trả đủ
+          </div>}
         </div>
 
-        {/* ─── BUTTONS ─── */}
+        {/* ═══ BUTTONS ═══ */}
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
           <button className="btn btn-ghost" onClick={onClose}>Thoát</button>
-          <button className="btn btn-primary" disabled={!custName.trim() || items.length===0} onClick={save}>
+          <button className="btn btn-primary" onClick={save} disabled={!custId || items.length===0} style={{ padding:"10px 24px" }}>
             <Ic n="check" s={15}/>Tạo đơn hàng
           </button>
         </div>
@@ -1899,6 +1766,8 @@ function PurchasesPage({ ctx }) {
 
   const openNew = () => setModal(
     <PurchaseForm u={u} suppliers={suppliers} products={products}
+      onAddSupplier={(ns) => { ctx.setSuppliers(ss=>[...ss,ns]); addLog("supplier_create",`Thêm NCC mới: ${ns.name}`); }}
+      onAddProduct={(np) => { setProducts(ps=>[...ps,np]); addLog("product_create",`Thêm SP mới từ phiếu nhập: ${np.name}`); }}
       onSave={order=>{
         const code=`NH${String(purchases.length+1).padStart(3,"0")}`;
         setPurchases(ps=>[{...order,id:uid(),code},...ps]);
@@ -1944,14 +1813,29 @@ function PurchasesPage({ ctx }) {
   );
 }
 
-function PurchaseForm({ u, suppliers, products, onSave, onClose }) {
+function PurchaseForm({ u, suppliers, products, onSave, onClose, onAddSupplier, onAddProduct }) {
   const draftKey = `sp3_draft_purchase_${u.id}`;
   const saved = (() => { try { const s=localStorage.getItem(draftKey); return s?JSON.parse(s):null; } catch { return null; } })();
 
   const [supId, setSupId] = useState(saved?.supId || suppliers[0]?.id || "");
-  const [items, setItems] = useState(saved?.items || [{ productId:products[0]?.id, qty:1, price:products[0]?.costPrice||0 }]);
+  const [items, setItems] = useState(saved?.items || []);
   const [paid,  setPaid]  = useState(saved?.paid  || 0);
   const [hasDraft, setHD] = useState(!!saved);
+
+  // New supplier inline
+  const [showNewSup, setShowNewSup] = useState(false);
+  const [nsName,    setNsName]    = useState("");
+  const [nsPhone,   setNsPhone]   = useState("");
+  const [nsContact, setNsContact] = useState("");
+  const [nsEmail,   setNsEmail]   = useState("");
+  const [nsAddr,    setNsAddr]    = useState("");
+  const [supSearch, setSupSearch] = useState("");
+  const [showSupDD, setShowSupDD] = useState(false);
+
+  // Product search (autocomplete thay cho dropdown dài)
+  const [prodSearch, setProdSearch] = useState("");
+  const [showProdDD, setShowProdDD] = useState(false);
+  const [newProdRow, setNewProdRow] = useState(null); // false=not editing, true=opening blank new-product form from search
 
   const saveDraft = () => { localStorage.setItem(draftKey,JSON.stringify({supId,items,paid})); setHD(true); };
   const clearDraft = () => { localStorage.removeItem(draftKey); setHD(false); };
@@ -1959,18 +1843,51 @@ function PurchaseForm({ u, suppliers, products, onSave, onClose }) {
   const total = items.reduce((s,i)=>s+i.qty*i.price,0);
   const sup = suppliers.find(s=>s.id===supId);
 
-  const addItem = () => setItems(is=>[...is,{productId:products[0]?.id,qty:1,price:products[0]?.costPrice||0}]);
   const setItem = (idx,k,v) => setItems(is=>is.map((x,i)=>i===idx?{...x,[k]:v}:x));
-  const handleProd = (idx,prodId) => { const p=products.find(x=>x.id===prodId); setItem(idx,"productId",prodId); setItem(idx,"price",p?.costPrice||0); };
+  const removeItem = (idx) => setItems(is=>is.filter((_,i)=>i!==idx));
+
+  const prodFiltered = prodSearch.trim()
+    ? products.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()) || (p.code||"").toLowerCase().includes(prodSearch.toLowerCase())).slice(0,10)
+    : [];
+
+  const addProductRow = (p) => {
+    const existing = items.find(i=>i.productId===p.id);
+    if (existing) {
+      setItems(is=>is.map(x=>x.productId===p.id?{...x,qty:x.qty+1}:x));
+    } else {
+      setItems(is=>[...is, { productId:p.id, productName:p.name, unit:p.unit, qty:1, price:p.costPrice||0 }]);
+    }
+    setProdSearch(""); setShowProdDD(false);
+  };
+
+  const supFiltered = supSearch.trim()
+    ? suppliers.filter(s => s.name.toLowerCase().includes(supSearch.toLowerCase()) || (s.phone||"").includes(supSearch) || (s.code||"").toLowerCase().includes(supSearch.toLowerCase())).slice(0,8)
+    : [];
+
+  const submitNewSupplier = () => {
+    if (!nsName.trim()) return;
+    const ns = { id: uid(), code:`NCC${String(suppliers.length+1).padStart(3,"0")}`, name:nsName.trim(), phone:nsPhone.trim(), contact:nsContact.trim(), email:nsEmail.trim(), address:nsAddr.trim() };
+    onAddSupplier(ns);
+    setSupId(ns.id);
+    setShowNewSup(false); setNsName(""); setNsPhone(""); setNsContact(""); setNsEmail(""); setNsAddr(""); setSupSearch("");
+  };
+
+  const submitNewProduct = (newProd) => {
+    onAddProduct(newProd);
+    setItems(is=>[...is, { productId:newProd.id, productName:newProd.name, unit:newProd.unit, qty:1, price:newProd.costPrice||0 }]);
+    setNewProdRow(null);
+    setProdSearch(""); setShowProdDD(false);
+  };
 
   const save = () => {
-    const enriched = items.map(i=>{ const p=products.find(x=>x.id===i.productId); return{...i,productName:p?.name||"",unit:p?.unit||""}; });
+    if (!supId || items.length===0) return;
+    const enriched = items.map(i=>({ productId:i.productId, productName:i.productName, unit:i.unit, qty:i.qty, price:i.price }));
     onSave({ supplierId:supId, supplierName:sup?.name, date:todayStr(), total, paid:Math.min(paid,total), status:paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, createdBy:u.id, createdByName:u.name });
     clearDraft();
   };
 
   return (
-    <div>
+    <div style={{ minWidth:480 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
         <h3 style={{ fontWeight:800 }}>Tạo phiếu nhập hàng</h3>
         <div style={{ display:"flex", gap:8 }}>
@@ -1981,28 +1898,165 @@ function PurchaseForm({ u, suppliers, products, onSave, onClose }) {
       {hasDraft && <div style={{ fontSize:12, color:"var(--acc)", background:"#00d4aa11", padding:"6px 12px", borderRadius:8, marginBottom:12 }}>📂 Bản nháp đã lưu — <button onClick={clearDraft} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",fontSize:12,fontFamily:"inherit" }}>Xóa</button></div>}
 
       <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+        {/* ═══ NHÀ CUNG CẤP ═══ */}
         <div>
           <label className="label">Nhà cung cấp</label>
-          <select className="input" value={supId} onChange={e=>setSupId(e.target.value)}>
-            {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          {!showNewSup && !sup && (
+            <div style={{ position:"relative" }}>
+              <div style={{ position:"relative" }}>
+                <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
+                <input className="input" style={{ paddingLeft:34 }}
+                  placeholder="Tìm tên, SĐT, mã NCC..."
+                  value={supSearch}
+                  onChange={e=>{ setSupSearch(e.target.value); setShowSupDD(true); }}
+                  onFocus={()=>setShowSupDD(true)}
+                  onBlur={()=>setTimeout(()=>setShowSupDD(false),180)}
+                />
+              </div>
+              {showSupDD && supSearch.trim() && (
+                <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:220, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                  {supFiltered.length===0 && <div style={{ padding:12, textAlign:"center", color:"var(--muted)", fontSize:12 }}>Không tìm thấy NCC</div>}
+                  {supFiltered.map(s=>(
+                    <div key={s.id} onMouseDown={()=>{ setSupId(s.id); setSupSearch(""); setShowSupDD(false); }}
+                      style={{ padding:"9px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{s.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {s.code}</span></div>
+                      <div style={{ fontSize:11, color:"var(--muted)" }}>📞 {s.phone||"—"} · 📍 {s.address||"—"}</div>
+                    </div>
+                  ))}
+                  <div onMouseDown={()=>{ setShowNewSup(true); setNsName(supSearch); setShowSupDD(false); }}
+                    style={{ padding:"9px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, borderTop:"1px solid var(--bdr)" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <Ic n="plus" s={13}/> Tạo NCC mới: "<b>{supSearch}</b>"
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* NCC đã chọn */}
+          {sup && !showNewSup && (
+            <div style={{ background:"var(--sur2)", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:14, color:"var(--info)" }}>{sup.name}</div>
+                <div style={{ fontSize:12, color:"var(--muted)" }}>
+                  📞 {sup.phone||"—"} · 📍 {sup.address||"—"}
+                  {sup.contact && <> · 👤 {sup.contact}</>}
+                </div>
+              </div>
+              <button onMouseDown={()=>{ setSupId(""); setSupSearch(""); }} className="btn btn-ghost btn-xs" style={{ color:"var(--danger)", flexShrink:0 }}>
+                <Ic n="x" s={13}/>Đổi NCC
+              </button>
+            </div>
+          )}
+
+          {showNewSup && (
+            <div style={{ background:"var(--sur2)", borderRadius:10, padding:"12px 14px", border:"1px dashed var(--acc)55" }}>
+              <div style={{ fontSize:11, color:"var(--acc)", fontWeight:700, marginBottom:8 }}>⚡ Nhà cung cấp mới:</div>
+              <div className="form-row" style={{ gap:8, marginBottom:8 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>TÊN NCC *</label>
+                  <input className="input" placeholder="Tên công ty / NCC..." value={nsName} onChange={e=>setNsName(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ ĐIỆN THOẠI</label>
+                  <input className="input" placeholder="09xx..." value={nsPhone} onChange={e=>setNsPhone(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div className="form-row" style={{ gap:8, marginBottom:8 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>NGƯỜI LIÊN HỆ</label>
+                  <input className="input" placeholder="Tên người liên hệ..." value={nsContact} onChange={e=>setNsContact(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>EMAIL</label>
+                  <input className="input" placeholder="email@..." value={nsEmail} onChange={e=>setNsEmail(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>ĐỊA CHỈ</label>
+                <input className="input" placeholder="Địa chỉ NCC..." value={nsAddr} onChange={e=>setNsAddr(e.target.value)} style={{ fontSize:12 }}/>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn btn-primary btn-sm" onClick={submitNewSupplier} disabled={!nsName.trim()}><Ic n="plus" s={13}/>Thêm & chọn</button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>setShowNewSup(false)}>Hủy</button>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* ═══ HÀNG NHẬP ═══ */}
         <div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
             <label className="label" style={{ margin:0 }}>Hàng nhập</label>
-            <button className="btn btn-ghost btn-xs" onClick={addItem}><Ic n="plus" s={12}/>Thêm</button>
+            <span style={{ fontSize:11, color:"var(--muted)" }}>{items.length} mặt hàng</span>
           </div>
-          {items.map((item,idx)=>(
-            <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 70px 110px auto", gap:8, alignItems:"center", marginBottom:8 }}>
-              <select className="input" value={item.productId} onChange={e=>handleProd(idx,e.target.value)}>
-                {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} />
-              <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} />
-              <button onClick={()=>setItems(is=>is.filter((_,i)=>i!==idx))} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)" }}><Ic n="x" s={16}/></button>
+
+          {/* Ô tìm kiếm sản phẩm */}
+          <div style={{ position:"relative", marginBottom:10 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
+              <input className="input" style={{ paddingLeft:34 }}
+                placeholder="Tìm sản phẩm theo tên, mã SP..."
+                value={prodSearch}
+                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); }}
+                onFocus={()=>setShowProdDD(true)}
+                onBlur={()=>setTimeout(()=>setShowProdDD(false),180)}
+              />
             </div>
-          ))}
+            {showProdDD && prodSearch.trim() && (
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:260, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                {prodFiltered.length===0 && <div style={{ padding:12, textAlign:"center", color:"var(--muted)", fontSize:12 }}>Không tìm thấy sản phẩm</div>}
+                {prodFiltered.map(p=>(
+                  <div key={p.id} onMouseDown={()=>addProductRow(p)}
+                    style={{ padding:"9px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22", display:"flex", justifyContent:"space-between", alignItems:"center" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{p.name}</div>
+                      <div style={{ fontSize:11, color:"var(--muted)" }}>{p.code} · {p.unit} · Vốn: {fmt(p.costPrice)}</div>
+                    </div>
+                    <span className="badge badge-blue" style={{ fontSize:10 }}>Kho: {p.stock}</span>
+                  </div>
+                ))}
+                {/* Tạo hàng mới nếu tìm không thấy */}
+                <div onMouseDown={()=>{ setNewProdRow(true); setShowProdDD(false); }}
+                  style={{ padding:"9px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, borderTop:"1px solid var(--bdr)" }}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <Ic n="plus" s={13}/> Tạo hàng mới: "<b>{prodSearch}</b>"
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Danh sách đã thêm */}
+          {items.length===0 && <div style={{ textAlign:"center", padding:"14px 10px", color:"var(--muted)", fontSize:12 }}>Tìm sản phẩm ở ô trên để thêm vào phiếu nhập</div>}
+          {items.length>0 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 60px 60px 90px 22px", gap:6, padding:"0 4px" }}>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700 }}>SẢN PHẨM</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>ĐVT</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>SL</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"right" }}>GIÁ NHẬP</span>
+                <span></span>
+              </div>
+              {items.map((item,idx)=>(
+                <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 60px 60px 90px 22px", gap:6, alignItems:"center", padding:"6px 4px", background:"var(--sur2)", borderRadius:6 }}>
+                  <div style={{ fontWeight:600, fontSize:12 }}>{item.productName}</div>
+                  <div style={{ fontSize:11, color:"var(--muted)", textAlign:"center" }}>{item.unit}</div>
+                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"4px 6px", fontSize:12, textAlign:"center" }}/>
+                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"4px 6px", fontSize:12, textAlign:"right" }}/>
+                  <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={14}/></button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
         <div><label className="label">Đã thanh toán NCC (đ)</label><input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)}/></div>
         <div style={{ background:"var(--sur2)", borderRadius:10, padding:"14px 16px" }}>
           <div style={{ display:"flex", justifyContent:"space-between", fontWeight:700 }}>
@@ -2013,7 +2067,64 @@ function PurchaseForm({ u, suppliers, products, onSave, onClose }) {
         </div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
           <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
-          <button className="btn btn-primary" onClick={save}><Ic n="check" s={15}/>Tạo phiếu</button>
+          <button className="btn btn-primary" onClick={save} disabled={!supId || items.length===0}><Ic n="check" s={15}/>Tạo phiếu</button>
+        </div>
+      </div>
+
+      {/* Mini modal để tạo SP mới ngay tại dòng */}
+      {newProdRow && (
+        <div style={{ position:"fixed", inset:0, background:"#000000aa", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <div style={{ background:"var(--sur)", borderRadius:14, padding:22, width:380, border:"1px solid var(--bdr)" }}>
+            <NewProductInline initialName={prodSearch} onSubmit={submitNewProduct} onCancel={()=>setNewProdRow(false)} productsCount={products.length} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Form nhỏ tạo SP mới ngay trong phiếu nhập
+function NewProductInline({ onSubmit, onCancel, productsCount, initialName }) {
+  const [name, setName] = useState(initialName || "");
+  const [unit, setUnit] = useState("Cái");
+  const [costPrice, setCostPrice] = useState(0);
+
+  const autoCode = () => {
+    const words = name.trim().split(/\s+/);
+    return words.map(w=>w.charAt(0).toUpperCase()).join("").slice(0,4) + String(productsCount+1).padStart(2,"0");
+  };
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onSubmit({ id:uid(), code:autoCode(), name:name.trim(), unit, stock:0, damaged:0, costPrice, retailPrice:0, price:0, category:"Khác", supplierId:"" });
+  };
+
+  return (
+    <div>
+      <div style={{ fontWeight:800, fontSize:15, marginBottom:14 }}>⚡ Tạo hàng mới</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        <div>
+          <label className="label">Tên sản phẩm *</label>
+          <input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Tên hàng..." autoFocus/>
+        </div>
+        <div className="form-row">
+          <div>
+            <label className="label">Đơn vị</label>
+            <select className="input" value={unit} onChange={e=>setUnit(e.target.value)}>
+              {["Cái","Bộ","Thùng","Can","Hộp","Chai","md","m2","kg","tấn","Khác"].map(u=><option key={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Giá vốn (đ)</label>
+            <input className="input" type="number" value={costPrice} onChange={e=>setCostPrice(+e.target.value)} />
+          </div>
+        </div>
+        <div style={{ fontSize:11, color:"var(--muted)" }}>
+          Mã SP sẽ tự tạo. Giá bán buôn/lẻ có thể cập nhật sau ở trang Sản phẩm/Kho.
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:6 }}>
+          <button className="btn btn-ghost" onClick={onCancel}>Hủy</button>
+          <button className="btn btn-primary" onClick={submit} disabled={!name.trim()}><Ic n="check" s={15}/>Thêm & dùng</button>
         </div>
       </div>
     </div>
@@ -2074,10 +2185,9 @@ function ProductsPage({ ctx }) {
 
   const del = (p) => {
     if(!can(u,"product_delete")){ showToast("Không có quyền xóa","error"); return; }
-    if(!window.confirm(`Xác nhận xóa sản phẩm?\n\n"${p.name}" (${p.code})\n\nHành động này không thể hoàn tác!`)) return;
     setProducts(ps=>ps.filter(x=>x.id!==p.id));
     addLog("product_delete",`Xóa sản phẩm ${p.code} — ${p.name}`);
-    showToast("Đã xóa sản phẩm");
+    showToast("Đã xóa");
   };
 
   const exportXLS = () => {
@@ -2405,10 +2515,9 @@ function CustomersPage({ ctx, setPage, setSelectedCustomerId }) {
                         </button>
                         {can(u,"customer_delete") && (
                           <button className="btn btn-danger btn-xs" onClick={()=>{
-                            if(!window.confirm(`Xác nhận xóa khách hàng?\n\n"${c.name}" (${c.code})\n\nHành động này không thể hoàn tác!`)) return;
                             setCusts(cs=>cs.filter(x=>x.id!==c.id));
                             addLog("customer_delete",`Xóa KH ${c.name}`);
-                            showToast("Đã xóa khách hàng");
+                            showToast("Đã xóa");
                           }}><Ic n="trash" s={13}/></button>
                         )}
                       </div>
@@ -2908,6 +3017,184 @@ function UserForm({ initial, users, onSave, onClose }) {
             <Ic n="check" s={15}/>{initial?"Cập nhật":"Tạo tài khoản"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// BACKUP / RESTORE
+// ════════════════════════════════════════════════════════
+function BackupPage({ ctx }) {
+  const { products, customers, suppliers, orders, purchases, auditLog, users, setProducts, setCusts, setSuppliers, setOrders, setPurchases, setAuditLog, setUsers, addLog, showToast } = ctx;
+  const fileRef = useRef();
+  const [importPreview, setImportPreview] = useState(null);
+  const [lastBackup, setLastBackup] = useState(() => localStorage.getItem("sp3_last_backup") || null);
+
+  const dataSize = (() => {
+    try {
+      const total = JSON.stringify({products,customers,suppliers,orders,purchases,auditLog,users}).length;
+      return (total/1024).toFixed(1) + " KB";
+    } catch { return "—"; }
+  })();
+
+  const stats = [
+    { label:"Sản phẩm",   count: products.length },
+    { label:"Khách hàng", count: customers.length },
+    { label:"Nhà cung cấp", count: suppliers.length },
+    { label:"Đơn hàng",   count: orders.length },
+    { label:"Phiếu nhập", count: purchases.length },
+    { label:"Tài khoản",  count: users.length },
+    { label:"Lịch sử",    count: auditLog.length },
+  ];
+
+  // ── XUẤT FILE SAO LƯU ──
+  const doBackup = () => {
+    const payload = {
+      _meta: { app:"SalesPro", version:"4.3", exportedAt: new Date().toISOString() },
+      products, customers, suppliers, orders, purchases, auditLog, users,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+    a.href = url;
+    a.download = `salespro-backup-${stamp}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    const now = new Date().toLocaleString("vi-VN");
+    localStorage.setItem("sp3_last_backup", now);
+    setLastBackup(now);
+    addLog("report_view", `Sao lưu dữ liệu — ${dataSize}`);
+    showToast("Đã tải file sao lưu");
+  };
+
+  // ── CHỌN FILE ĐỂ KHÔI PHỤC (chỉ xem trước, chưa ghi đè) ──
+  const pickFile = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.products && !data.orders && !data.customers) {
+          showToast("File không đúng định dạng sao lưu SalesPro","error");
+          return;
+        }
+        setImportPreview({ data, fileName:file.name });
+      } catch {
+        showToast("Không đọc được file — file bị hỏng hoặc sai định dạng","error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  // ── XÁC NHẬN KHÔI PHỤC — GHI ĐÈ TOÀN BỘ ──
+  const confirmRestore = () => {
+    if (!importPreview) return;
+    const d = importPreview.data;
+    if (!window.confirm("⚠ Khôi phục sẽ GHI ĐÈ toàn bộ dữ liệu hiện tại bằng dữ liệu trong file sao lưu.\n\nBạn có chắc chắn muốn tiếp tục?")) return;
+
+    if (d.products)  setProducts(d.products);
+    if (d.customers) setCusts(d.customers);
+    if (d.suppliers) setSuppliers(d.suppliers);
+    if (d.orders)    setOrders(d.orders);
+    if (d.purchases) setPurchases(d.purchases);
+    if (d.auditLog)  setAuditLog(d.auditLog);
+    if (d.users)      setUsers(d.users);
+
+    showToast("✓ Đã khôi phục dữ liệu thành công");
+    setImportPreview(null);
+    setTimeout(() => window.location.reload(), 1200);
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:18, maxWidth:780 }}>
+
+      {/* Tổng quan dữ liệu hiện tại */}
+      <div className="card">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+          <div className="section-title" style={{ margin:0 }}>📊 Dữ liệu hiện tại</div>
+          <span style={{ fontSize:12, color:"var(--muted)" }}>Dung lượng: <b style={{ color:"var(--text)" }}>{dataSize}</b></span>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))", gap:10 }}>
+          {stats.map((s,i)=>(
+            <div key={i} style={{ background:"var(--sur2)", borderRadius:10, padding:"10px 14px", textAlign:"center" }}>
+              <div style={{ fontSize:20, fontWeight:800, color:"var(--acc)" }}>{s.count}</div>
+              <div style={{ fontSize:11, color:"var(--muted)" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Sao lưu */}
+      <div className="card">
+        <div className="section-title">💾 Sao lưu dữ liệu</div>
+        <p style={{ fontSize:13, color:"var(--muted)", marginBottom:14, lineHeight:1.6 }}>
+          Toàn bộ dữ liệu (sản phẩm, khách hàng, nhà cung cấp, đơn hàng, phiếu nhập, tài khoản, lịch sử thao tác)
+          sẽ được lưu vào <b>1 file .json</b>. Hãy lưu file này vào Google Drive, USB, hoặc email cho chính mình
+          để phòng trường hợp mất dữ liệu do xóa cache trình duyệt hoặc đổi máy tính.
+        </p>
+        {lastBackup && (
+          <div style={{ fontSize:12, color:"var(--green)", marginBottom:12 }}>
+            ✓ Lần sao lưu gần nhất: <b>{lastBackup}</b>
+          </div>
+        )}
+        <button className="btn btn-primary" onClick={doBackup}>
+          <Ic n="download" s={15}/>Tải file sao lưu ngay
+        </button>
+      </div>
+
+      {/* Khôi phục */}
+      <div className="card">
+        <div className="section-title">📂 Khôi phục dữ liệu</div>
+        <p style={{ fontSize:13, color:"var(--muted)", marginBottom:14, lineHeight:1.6 }}>
+          Chọn file <b>.json</b> đã sao lưu trước đó để khôi phục lại dữ liệu.
+          <span style={{ color:"var(--danger)" }}> Lưu ý: thao tác này sẽ ghi đè toàn bộ dữ liệu hiện tại.</span>
+        </p>
+        <button className="btn btn-ghost" onClick={()=>fileRef.current.click()}>
+          <Ic n="upload" s={15}/>Chọn file khôi phục
+        </button>
+        <input ref={fileRef} type="file" accept=".json" style={{ display:"none" }} onChange={pickFile} />
+
+        {/* Preview trước khi ghi đè */}
+        {importPreview && (
+          <div style={{ marginTop:16, background:"var(--sur2)", borderRadius:10, padding:16, border:"1px solid var(--danger)33" }}>
+            <div style={{ fontWeight:700, fontSize:14, marginBottom:10, color:"var(--danger)" }}>⚠ Xác nhận khôi phục</div>
+            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:4 }}>File: <b style={{ color:"var(--text)" }}>{importPreview.fileName}</b></div>
+            {importPreview.data._meta && (
+              <div style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>
+                Xuất lúc: {new Date(importPreview.data._meta.exportedAt).toLocaleString("vi-VN")}
+              </div>
+            )}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))", gap:8, marginBottom:14 }}>
+              {[
+                { l:"Sản phẩm",   v:importPreview.data.products?.length||0 },
+                { l:"Khách hàng", v:importPreview.data.customers?.length||0 },
+                { l:"NCC",        v:importPreview.data.suppliers?.length||0 },
+                { l:"Đơn hàng",   v:importPreview.data.orders?.length||0 },
+                { l:"Phiếu nhập", v:importPreview.data.purchases?.length||0 },
+              ].map((x,i)=>(
+                <div key={i} style={{ background:"var(--bg)", borderRadius:8, padding:"6px 10px", textAlign:"center" }}>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{x.v}</div>
+                  <div style={{ fontSize:10, color:"var(--muted)" }}>{x.l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setImportPreview(null)}>Hủy</button>
+              <button className="btn btn-danger btn-sm" onClick={confirmRestore}><Ic n="check" s={13}/>Xác nhận ghi đè & khôi phục</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Khuyến nghị */}
+      <div style={{ fontSize:12, color:"var(--muted)", background:"var(--sur2)", padding:"12px 16px", borderRadius:10, lineHeight:1.7 }}>
+        💡 <b style={{ color:"var(--text)" }}>Khuyến nghị:</b> Sao lưu định kỳ mỗi tuần hoặc sau mỗi đợt nhập/xuất hàng lớn.
+        Dữ liệu của SalesPro được lưu trong trình duyệt (localStorage) — nếu xóa lịch sử duyệt web,
+        cài lại Windows, hoặc đổi máy tính mà chưa sao lưu, dữ liệu sẽ bị mất vĩnh viễn.
       </div>
     </div>
   );
