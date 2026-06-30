@@ -1,0 +1,3241 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SalesPro v4.3 — Nội Thất Gỗ Minh Duy</title>
+<style>html,body{margin:0;background:#0e1016}#root{min-height:100vh}#loader{display:flex;align-items:center;justify-content:center;min-height:100vh;color:#00d4aa;font-family:sans-serif;flex-direction:column;gap:16px}.spin{width:40px;height:40px;border:3px solid #1c2038;border-top-color:#00d4aa;border-radius:50%;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style>
+</head><body>
+<div id="root"><div id="loader"><div class="spin"></div><div>Đang khởi động...</div></div></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useRef, useCallback } = React;
+// ════════════════════════════════════════════════════════
+// PHÂN QUYỀN – RBAC ENGINE
+// ════════════════════════════════════════════════════════
+/*
+  Roles (cấp cao → thấp):
+    owner   – Chủ cửa hàng / Giám đốc : toàn quyền tuyệt đối
+    manager – Quản lý / Trưởng phòng  : không quản lý TK, không xóa
+    sale    – Nhân viên bán hàng       : chỉ đơn của mình + xem kho
+*/
+const PERMS = {
+  // [owner, manager, sale]
+  order_create:       [true,  true,  true ],
+  order_edit_own:     [true,  true,  true ],   // sửa đơn của mình
+  order_edit_any:     [true,  true,  false],   // sửa đơn bất kỳ
+  order_delete:       [true,  true,  false],
+  order_collect:      [true,  true,  true ],   // thu tiền đơn của mình
+  order_collect_any:  [true,  true,  false],
+  order_view_all:     [true,  true,  false],   // xem tất cả đơn (sale chỉ xem của mình)
+
+  product_view:       [true,  true,  true ],
+  product_create:     [true,  true,  false],
+  product_edit:       [true,  true,  false],
+  product_delete:     [true,  true,  false],
+  stock_adjust:       [true,  true,  false],
+
+  purchase_view:      [true,  true,  false],
+  purchase_create:    [true,  true,  false],
+  purchase_delete:    [true,  true,  false],
+  purchase_pay:       [true,  true,  false],
+
+  customer_view:      [true,  true,  true ],
+  customer_create:    [true,  true,  true ],
+  customer_edit:      [true,  true,  false],
+  customer_delete:    [true,  true,  false],
+
+  supplier_view:      [true,  true,  false],   // sale không thấy NCC
+  supplier_edit:      [true,  false, false],   // manager chỉ xem
+  supplier_delete:    [true,  false, false],
+
+  report_view:        [true,  true,  false],   // ghi log khi xem
+
+  audit_view_all:     [true,  false, false],   // chủ xem tất cả
+  audit_view_team:    [true,  true,  false],   // manager xem nhóm mình
+  audit_view_own:     [true,  true,  true ],   // mọi người xem của mình
+
+  user_manage:        [true,  false, false],   // CHỈ owner
+};
+
+const ROLE_ORDER = ["owner", "manager", "sale"];
+
+function can(user, perm) {
+  if (!user) return false;
+  const idx = ROLE_ORDER.indexOf(user.role);
+  if (idx === -1) return false;
+  return PERMS[perm]?.[idx] ?? false;
+}
+
+// ════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════
+const fmt  = (n) => new Intl.NumberFormat("vi-VN").format(n || 0) + "đ";
+const nowStr = () => new Date().toLocaleString("vi-VN", { hour12: false });
+const todayStr = () => new Date().toISOString().split("T")[0];
+const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function useLS(key, def) {
+  const [v, sv] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; }
+  });
+  const set = useCallback((upd) => {
+    sv(prev => {
+      const next = typeof upd === "function" ? upd(prev) : upd;
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [key]);
+  return [v, set];
+}
+
+// ════════════════════════════════════════════════════════
+// SEED DATA
+// ════════════════════════════════════════════════════════
+const SEED_USERS = [
+  { id: "u1", username: "owner",   password: "owner123",   name: "Nguyễn Văn Chủ",         role: "owner",   active: true, createdAt: "01/01/2026 08:00", createdBy: "system" },
+  { id: "u2", username: "manager", password: "manager123", name: "Trần Thị Quản Lý",        role: "manager", active: true, createdAt: "02/01/2026 09:00", createdBy: "u1" },
+  { id: "u3", username: "sale1",   password: "sale123",    name: "Lê Văn Bán Hàng",         role: "sale",    active: true, createdAt: "03/01/2026 10:00", createdBy: "u1" },
+  { id: "u4", username: "sale2",   password: "sale456",    name: "Phạm Thị Doanh Thu",      role: "sale",    active: false, createdAt: "04/01/2026 10:00", createdBy: "u2" },
+];
+
+const SEED_DATA = {
+  products: [
+    { id:"p1", code:"SP001", name:"Nước suối Lavie 500ml", unit:"Thùng", stock:120, price:95000,  costPrice:75000,  category:"Nước uống", supplierId:"s1" },
+    { id:"p2", code:"SP002", name:"Coca-Cola 330ml",       unit:"Thùng", stock:48,  price:210000, costPrice:170000, category:"Nước ngọt", supplierId:"s2" },
+    { id:"p3", code:"SP003", name:"Mì Hảo Hảo",           unit:"Thùng", stock:60,  price:185000, costPrice:145000, category:"Thực phẩm", supplierId:"s3" },
+    { id:"p4", code:"SP004", name:"Dầu ăn Neptune 5L",    unit:"Can",   stock:40,  price:215000, costPrice:175000, category:"Thực phẩm", supplierId:"s3" },
+    { id:"p5", code:"SP005", name:"Pepsi 330ml",           unit:"Thùng", stock:72,  price:195000, costPrice:158000, category:"Nước ngọt", supplierId:"s2" },
+  ],
+  customers: [
+    { id:"c1", code:"KH001", name:"Tạp hóa Bà Lan",      phone:"0901234567", address:"123 Lê Lợi, Q1",        totalBought:45000000 },
+    { id:"c2", code:"KH002", name:"Siêu thị Mini Hùng",   phone:"0912345678", address:"456 Nguyễn Trãi, Q5",   totalBought:128000000 },
+    { id:"c3", code:"KH003", name:"Cửa hàng Minh Châu",  phone:"0923456789", address:"789 Trần Hưng Đạo, Q10", totalBought:67000000 },
+  ],
+  suppliers: [
+    { id:"s1", code:"NCC001", name:"Lavie VN",    phone:"0281234567", contact:"Anh Tuấn", email:"lavie@vn",  address:"KCN Bình Dương" },
+    { id:"s2", code:"NCC002", name:"Pepsico VN",  phone:"0289876543", contact:"Chị Mai",  email:"pepsi@vn",  address:"KCN Long An" },
+    { id:"s3", code:"NCC003", name:"Acecook VN",  phone:"0285556666", contact:"Anh Dũng", email:"ace@vn",    address:"Bình Dương" },
+  ],
+  orders: [
+    // approved=true → đã xuất kho; approved=false → đang chờ duyệt
+    // delivered, returned, paid là trạng thái sau khi đã xuất
+    { id:"o1", code:"DH001", customerId:"c1", customerName:"Tạp hóa Bà Lan",    date:"2026-05-08", total:1850000, paid:0, approved:true,  delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u3", createdByName:"Lê Văn Bán Hàng",   items:[{productId:"p2",productName:"Coca-Cola 330ml",qty:5,price:210000,unit:"Thùng"},{productId:"p1",productName:"Nước suối Lavie",qty:8,price:95000,unit:"Thùng"}] },
+    { id:"o2", code:"DH002", customerId:"c2", customerName:"Siêu thị Mini Hùng", date:"2026-05-09", total:4200000, paid:4200000, approved:true,  delivered:true,  returned:false, isPaid:true,  status:"paid", createdBy:"u3", createdByName:"Lê Văn Bán Hàng",   items:[{productId:"p3",productName:"Mì Hảo Hảo",qty:10,price:185000,unit:"Thùng"},{productId:"p4",productName:"Dầu Neptune 5L",qty:8,price:215000,unit:"Can"}] },
+    { id:"o3", code:"DH003", customerId:"c3", customerName:"Cửa hàng Minh Châu", date:"2026-05-10", total:2750000, paid:0,       approved:false, delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u4", createdByName:"Phạm Thị Doanh Thu", items:[{productId:"p5",productName:"Pepsi 330ml",qty:10,price:195000,unit:"Thùng"},{productId:"p1",productName:"Nước suối Lavie",qty:5,price:95000,unit:"Thùng"}] },
+    { id:"o4", code:"DH004", customerId:"c1", customerName:"Tạp hóa Bà Lan",    date:"2026-05-10", total:1260000, paid:0,       approved:false, delivered:false, returned:false, isPaid:false, status:"unpaid", createdBy:"u1", createdByName:"Nguyễn Văn Chủ",     items:[{productId:"p3",productName:"Mì Hảo Hảo",qty:4,price:185000,unit:"Thùng"},{productId:"p5",productName:"Pepsi 330ml",qty:2,price:195000,unit:"Thùng"}] },
+    { id:"o5", code:"DH005", customerId:"c2", customerName:"Siêu thị Mini Hùng", date:"2026-05-10", total:2700000, paid:2700000, approved:false, delivered:false, returned:false, isPaid:false, status:"paid", createdBy:"u1", createdByName:"Nguyễn Văn Chủ",     items:[{productId:"p4",productName:"Dầu Neptune 5L",qty:12,price:215000,unit:"Can"},{productId:"p1",productName:"Nước suối Lavie",qty:1,price:95000,unit:"Thùng"}] },
+  ],
+  purchases: [
+    { id:"nh1", code:"NH001", supplierId:"s1", supplierName:"Lavie VN",   date:"2026-05-05", total:7500000, paid:7500000, status:"paid",    createdBy:"u2", createdByName:"Trần Thị Quản Lý", items:[{productId:"p1",productName:"Nước suối Lavie",qty:100,price:75000,unit:"Thùng"}] },
+    { id:"nh2", code:"NH002", supplierId:"s2", supplierName:"Pepsico VN", date:"2026-05-06", total:8500000, paid:5000000, status:"partial", createdBy:"u2", createdByName:"Trần Thị Quản Lý", items:[{productId:"p2",productName:"Coca-Cola",qty:30,price:170000,unit:"Thùng"},{productId:"p5",productName:"Pepsi 330ml",qty:20,price:158000,unit:"Thùng"}] },
+  ],
+  auditLog: [
+    { id:"a1", userId:"u1", userName:"Nguyễn Văn Chủ",   role:"owner",   action:"login",           detail:"Đăng nhập hệ thống",            time:"08/05/2026 07:58" },
+    { id:"a2", userId:"u3", userName:"Lê Văn Bán Hàng",  role:"sale",    action:"order_create",    detail:"Tạo đơn hàng DH001 — 1.850.000đ", time:"08/05/2026 09:12" },
+    { id:"a3", userId:"u3", userName:"Lê Văn Bán Hàng",  role:"sale",    action:"order_create",    detail:"Tạo đơn hàng DH002 — 4.200.000đ", time:"09/05/2026 10:30" },
+    { id:"a4", userId:"u2", userName:"Trần Thị Quản Lý", role:"manager", action:"purchase_create", detail:"Tạo phiếu nhập NH001 — 7.500.000đ", time:"05/05/2026 14:00" },
+    { id:"a5", userId:"u1", userName:"Nguyễn Văn Chủ",   role:"owner",   action:"report_view",     detail:"Xem báo cáo doanh thu tổng hợp",  time:"10/05/2026 08:05" },
+  ],
+};
+
+// ════════════════════════════════════════════════════════
+// ICONS
+// ════════════════════════════════════════════════════════
+const Ic = ({ n, s = 18 }) => {
+  const paths = {
+    home:    "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
+    box:     "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96L12 12.01l8.73-5.05 M12 22.08V12",
+    cart:    "M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z M3 6h18 M16 10a4 4 0 0 1-8 0",
+    users:   "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+    truck:   "M1 3h15v13H1z M16 8h4l3 3v5h-7V8z M5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+    bar:     "M18 20V10 M12 20V4 M6 20v-6",
+    plus:    "M12 5v14 M5 12h14",
+    search:  "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35",
+    edit:    "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z",
+    trash:   "M3 6h18 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+    x:       "M18 6L6 18 M6 6l12 12",
+    check:   "M20 6L9 17l-5-5",
+    print:   "M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z",
+    excel:   "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h2l2 4 2-4h2",
+    logout:  "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9",
+    menu:    "M3 12h18 M3 6h18 M3 18h18",
+    warn:    "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4 M12 17h.01",
+    money:   "M12 1v22 M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6",
+    upload:  "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12",
+    eye:     "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+    eyeoff:  "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94 M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24 M1 1l22 22",
+    save:    "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8",
+    log:     "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
+    shield:  "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+    key:     "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
+    lock:    "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 10 0v4",
+    unlock:  "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z M7 11V7a5 5 0 0 1 9.9-1",
+    draft:   "M12 20h9 M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z",
+    refresh: "M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
+    crown:   "M12 2l2.4 6.4L21 8l-5.4 4.8 1.8 6.8L12 16l-5.4 3.6 1.8-6.8L3 8l6.6.4z",
+  };
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={paths[n] || ""} />
+    </svg>
+  );
+};
+
+// ════════════════════════════════════════════════════════
+// CSS
+// ════════════════════════════════════════════════════════
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap');
+:root {
+  --bg:#0e1016;--sur:#16192a;--sur2:#1c2038;--bdr:#252d48;
+  --acc:#00d4aa;--acc2:#f59e0b;--danger:#f43f5e;--info:#60a5fa;
+  --text:#e2e8f0;--muted:#6b7a99;--green:#10b981;--yellow:#f59e0b;
+  --owner:#f59e0b;--manager:#60a5fa;--sale:#a78bfa;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Lexend',sans-serif;background:var(--bg);color:var(--text);}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--sur);}
+::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:4px;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+.btn{cursor:pointer;border:none;border-radius:8px;font-family:'Lexend',sans-serif;font-weight:600;font-size:13px;transition:all 0.15s;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;}
+.btn:active{transform:scale(0.97);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+.btn-primary{background:var(--acc);color:#0e1016;}
+.btn-primary:hover:not(:disabled){background:#00f0c0;box-shadow:0 0 16px #00d4aa33;}
+.btn-ghost{background:transparent;color:var(--muted);border:1.5px solid var(--bdr);}
+.btn-ghost:hover:not(:disabled){background:var(--sur2);color:var(--text);}
+.btn-danger{background:#f43f5e18;color:var(--danger);border:1.5px solid #f43f5e33;}
+.btn-danger:hover:not(:disabled){background:#f43f5e28;}
+.btn-yellow{background:#f59e0b18;color:var(--yellow);border:1.5px solid #f59e0b33;}
+.btn-yellow:hover:not(:disabled){background:#f59e0b28;}
+.btn-sm{padding:5px 10px;font-size:12px;}
+.btn-xs{padding:3px 8px;font-size:11px;}
+.input{background:var(--sur2);border:1.5px solid var(--bdr);border-radius:8px;padding:9px 13px;font-size:13px;color:var(--text);font-family:'Lexend',sans-serif;width:100%;outline:none;transition:border 0.15s;}
+.input:focus{border-color:var(--acc);box-shadow:0 0 0 3px #00d4aa14;}
+.input::placeholder{color:var(--muted);}
+select.input option{background:var(--sur2);}
+.input:disabled{opacity:0.5;cursor:not-allowed;}
+.card{background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:20px;}
+.table-wrap{overflow-x:auto;}
+.table{width:100%;border-collapse:collapse;font-size:13px;min-width:580px;}
+.table th{text-align:left;padding:10px 14px;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr);}
+.table td{padding:11px 14px;border-bottom:1px solid var(--bdr)22;vertical-align:middle;}
+.table tr:last-child td{border-bottom:none;}
+.table tr:hover td{background:var(--sur2);}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;}
+.badge-green{background:#10b98118;color:#10b981;border:1px solid #10b98133;}
+.badge-red{background:#f43f5e18;color:#f43f5e;border:1px solid #f43f5e33;}
+.badge-yellow{background:#f59e0b18;color:#f59e0b;border:1px solid #f59e0b33;}
+.badge-blue{background:#60a5fa18;color:#60a5fa;border:1px solid #60a5fa33;}
+.badge-teal{background:#00d4aa18;color:#00d4aa;border:1px solid #00d4aa33;}
+.badge-purple{background:#a78bfa18;color:#a78bfa;border:1px solid #a78bfa33;}
+.badge-orange{background:#f59e0b18;color:#f59e0b;border:1px solid #f59e0b33;}
+.modal-bg{position:fixed;inset:0;background:#00000088;display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);padding:16px;}
+.modal{background:var(--sur);border:1px solid var(--bdr);border-radius:18px;padding:28px;width:100%;max-width:860px;max-height:90vh;overflow-y:auto;}
+.label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;cursor:pointer;color:var(--muted);font-weight:500;font-size:13px;transition:all 0.15s;white-space:nowrap;}
+.nav-item:hover{background:var(--sur2);color:var(--text);}
+.nav-item.active{background:#00d4aa14;color:var(--acc);border:1px solid #00d4aa22;}
+.section-title{font-size:16px;font-weight:700;margin-bottom:16px;}
+.perm-denied{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:60px 20px;color:var(--muted);text-align:center;}
+.link{color:var(--acc);font-family:'IBM Plex Mono',monospace;font-weight:700;cursor:pointer;text-decoration:none;border-bottom:1px dashed transparent;transition:all .15s;}
+.link:hover{border-bottom-color:var(--acc);text-decoration:none;}
+.link-name{color:var(--text);font-weight:700;cursor:pointer;text-decoration:none;border-bottom:1px dashed transparent;transition:all .15s;}
+.link-name:hover{color:var(--acc);border-bottom-color:var(--acc);}
+.badge.clickable{cursor:pointer;border:none;font-family:'Lexend',sans-serif;}
+.badge.clickable:hover{filter:brightness(1.15);transform:translateY(-1px);}
+.badge.clickable:active{transform:translateY(0);}
+.toast-enter{animation:toastIn .2s ease;}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.fade-in{animation:fadeIn .2s ease;}
+@media(max-width:768px){
+  .form-row{grid-template-columns:1fr;}
+  .hide-mobile{display:none!important;}
+  .table{font-size:12px;}
+  .table td,.table th{padding:8px 10px;}
+  .btn{font-size:12px;padding:7px 12px;}
+  .card{padding:14px;}
+  .modal{padding:20px;}
+}
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  body>*{display:none!important;}
+  #print-area{display:block!important;position:static!important;left:auto!important;width:100%!important;background:#fff!important;color:#000!important;font-family:Arial,sans-serif!important;font-size:12px!important;padding:0!important;margin:0!important;}
+  #print-area *{visibility:visible!important;color:#000!important;}
+  #print-area table{border-collapse:collapse!important;width:100%!important;}
+  #print-area th,#print-area td{border:1px solid #333!important;padding:5px 7px!important;}
+  #print-area img{display:block!important;}
+}
+`;
+
+// ════════════════════════════════════════════════════════
+// ROLE DISPLAY
+// ════════════════════════════════════════════════════════
+const ROLE_META = {
+  owner:   { label: "👑 Chủ cửa hàng", badge: "badge-orange", color: "var(--owner)" },
+  manager: { label: "🧑‍💼 Quản lý",      badge: "badge-blue",   color: "var(--manager)" },
+  sale:    { label: "👤 Nhân viên",     badge: "badge-purple",  color: "var(--sale)" },
+};
+
+const RoleBadge = ({ role }) => {
+  const m = ROLE_META[role] || { label: role, badge: "badge-teal" };
+  return <span className={`badge ${m.badge}`}>{m.label}</span>;
+};
+
+function StatusBadge({ status }) {
+  const m = { paid: ["badge-green","✓ Đã TT"], partial: ["badge-yellow","Một phần"], unpaid: ["badge-red","Chưa TT"] };
+  const [c, l] = m[status] || ["badge-blue", status];
+  return <span className={`badge ${c}`}>{l}</span>;
+}
+
+// ════════════════════════════════════════════════════════
+// AUDIT LOG WRITER
+// ════════════════════════════════════════════════════════
+function makeAuditEntry(user, action, detail) {
+  return { id: uid(), userId: user.id, userName: user.name, role: user.role, action, detail, time: nowStr() };
+}
+
+// ════════════════════════════════════════════════════════
+// PRINT INVOICE
+// ════════════════════════════════════════════════════════
+function InvoicePrint({ order, customers }) {
+  const cust = customers.find(c => c.id === order.customerId) || {};
+  const f = (n) => new Intl.NumberFormat("vi-VN").format(n || 0);
+  const totalQty = (order.items||[]).reduce((s,it) => s + it.qty, 0);
+  const now = new Date();
+  const printDate = `${String(now.getDate()).padStart(2,"0")}-${String(now.getMonth()+1).padStart(2,"0")}-${now.getFullYear()}`;
+  // MB Bank VietQR URL for QR code (account: 0982228882, bank: MB)
+  const qrUrl = `https://img.vietqr.io/image/MB-0982228882-compact2.png?amount=${order.total}&addInfo=${encodeURIComponent("Thanh toan "+order.code)}&accountName=LE%20HANG%20NGA`;
+  const tdB = { border:"1px solid #333", padding:"5px 7px" };
+
+  return (
+    <div style={{ fontFamily:"Arial,sans-serif", color:"#111", background:"#fff", padding:"18px 28px", maxWidth:640, margin:"0 auto", fontSize:12 }}>
+
+      {/* ═══ HEADER ═══ */}
+      <div style={{ textAlign:"center", marginBottom:8, lineHeight:1.5 }}>
+        <div style={{ fontSize:15, fontWeight:800 }}>Công ty Nội Thất Gỗ Minh Duy</div>
+        <div style={{ fontStyle:"italic" }}>Showroom: 1065 Đê La Thành, Ngọc Khánh, Ba Đình, Hà Nội</div>
+        <div>ĐT/Zalo 034.920.9944- 098.222.8882</div>
+        <div style={{ fontStyle:"italic" }}>Xuất kho: 59/61 Tiến Thành - Hà Đông - Hà Nội</div>
+        <div>TK: Lê Hằng Nga-0982228882-MB-NH TMCP Quân đội</div>
+      </div>
+
+      {/* ═══ TITLE ═══ */}
+      <div style={{ textAlign:"center", margin:"8px 0", borderTop:"1.5px solid #111", borderBottom:"1.5px solid #111", padding:"5px 0" }}>
+        <div style={{ fontSize:17, fontWeight:800, letterSpacing:1 }}>HOÁ ĐƠN BÁN HÀNG</div>
+        <div style={{ fontSize:12 }}>Số HD: <b>{order.code}</b></div>
+      </div>
+
+      {/* ═══ CUSTOMER INFO ═══ */}
+      <div style={{ marginBottom:8, lineHeight:1.7 }}>
+        <div>Tên khách hàng: <b>{order.customerName}</b></div>
+        <div>Địa chỉ : {cust.address || "—"}</div>
+        <div>Điện thoại: {cust.phone || "—"}</div>
+      </div>
+
+      {/* ═══ TABLE ═══ */}
+      <table style={{ width:"100%", borderCollapse:"collapse", marginBottom:4 }}>
+        <thead>
+          <tr style={{ background:"#f0f0f0" }}>
+            <th style={{ ...tdB, textAlign:"center", width:28 }}>STT</th>
+            <th style={{ ...tdB, textAlign:"center" }}>Sản phẩm</th>
+            <th style={{ ...tdB, textAlign:"center", width:52 }}>Đơn vị</th>
+            <th style={{ ...tdB, textAlign:"center", width:32 }}>SL</th>
+            <th style={{ ...tdB, textAlign:"right", width:88 }}>Đơn giá</th>
+            <th style={{ ...tdB, textAlign:"right", width:95 }}>Thành tiền</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(order.items||[]).map((it,i) => (
+            <tr key={i}>
+              <td style={{ ...tdB, textAlign:"center" }}>{i+1}</td>
+              <td style={{ ...tdB }}>{it.productName}</td>
+              <td style={{ ...tdB, textAlign:"center" }}>{it.unit}</td>
+              <td style={{ ...tdB, textAlign:"center" }}>{it.qty}</td>
+              <td style={{ ...tdB, textAlign:"right" }}>{f(it.price)}</td>
+              <td style={{ ...tdB, textAlign:"right" }}>{f(it.qty * it.price)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td colSpan={3} style={{ ...tdB, textAlign:"right", fontWeight:800 }}>Tổng</td>
+            <td style={{ ...tdB, textAlign:"center", fontWeight:800 }}>{totalQty}</td>
+            <td style={{ ...tdB }}></td>
+            <td style={{ ...tdB, textAlign:"right", fontWeight:800, fontSize:13 }}><b>{f(order.total)}</b></td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ═══ SIGNATURES + QR ═══ */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginTop:22 }}>
+
+        {/* Người mua hàng */}
+        <div style={{ textAlign:"center", width:"28%" }}>
+          <div style={{ fontStyle:"italic", marginBottom:52 }}>Người mua hàng</div>
+          <div style={{ borderTop:"1px dashed #999" }}>&nbsp;</div>
+        </div>
+
+        {/* Người vận chuyển + QR */}
+        <div style={{ textAlign:"center", width:"36%" }}>
+          <div style={{ fontStyle:"italic", marginBottom:4 }}>Người vận chuyển</div>
+          <img src={qrUrl} alt="QR thanh toán" style={{ width:90, height:90, objectFit:"contain" }} />
+          <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:6, marginTop:4 }}>
+            <span style={{ fontSize:10, fontWeight:700, color:"#e05" }}>napas</span>
+            <span style={{ fontSize:10, fontWeight:800, color:"#005baa" }}>247</span>
+            <span style={{ fontSize:10, fontWeight:800, color:"#e05" }}>⚡</span>
+            <span style={{ fontSize:10, fontWeight:800, color:"#005baa" }}>MSB</span>
+          </div>
+        </div>
+
+        {/* Người bán */}
+        <div style={{ textAlign:"center", width:"28%" }}>
+          <div style={{ fontWeight:700, marginBottom:2 }}>Ngày: {printDate}</div>
+          <div style={{ fontWeight:700, fontSize:11, marginBottom:4 }}>LE HANG NGA MSB</div>
+          <div style={{ borderTop:"1px dashed #999" }}>&nbsp;</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// LOGIN
+// ════════════════════════════════════════════════════════
+function LoginPage({ users, onLogin }) {
+  const [uname, setUname] = useState("");
+  const [pass, setPass] = useState("");
+  const [showP, setShowP] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = () => {
+    const found = users.find(u => u.username === uname && u.password === pass);
+    if (!found) { setErr("Sai tên đăng nhập hoặc mật khẩu!"); return; }
+    if (!found.active) { setErr("Tài khoản đã bị khóa. Liên hệ Chủ cửa hàng!"); return; }
+    onLogin(found);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg)", padding:16 }}>
+      <div style={{ width:"100%", maxWidth:380 }} className="fade-in">
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={{ width:60, height:60, background:"linear-gradient(135deg,#00d4aa,#0055ff)", borderRadius:18, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 14px" }}>
+            <Ic n="shield" s={28} />
+          </div>
+          <div style={{ fontSize:26, fontWeight:800, color:"var(--acc)" }}>SalesPro v4</div>
+          <div style={{ color:"var(--muted)", fontSize:13, marginTop:4 }}>Hệ thống bán buôn — Phân quyền 3 cấp</div>
+        </div>
+        <div className="card" style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div>
+            <label className="label">Tên đăng nhập</label>
+            <input className="input" value={uname} onChange={e=>setUname(e.target.value)} placeholder="owner / manager / sale1" onKeyDown={e=>e.key==="Enter"&&submit()} />
+          </div>
+          <div>
+            <label className="label">Mật khẩu</label>
+            <div style={{ position:"relative" }}>
+              <input className="input" type={showP?"text":"password"} value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} style={{ paddingRight:44 }} />
+              <button onClick={()=>setShowP(v=>!v)} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"var(--muted)" }}>
+                <Ic n={showP?"eyeoff":"eye"} s={16} />
+              </button>
+            </div>
+          </div>
+          {err && <div style={{ color:"var(--danger)", fontSize:13, background:"#f43f5e11", padding:"8px 12px", borderRadius:8 }}>⚠ {err}</div>}
+          <button className="btn btn-primary" style={{ width:"100%", justifyContent:"center", padding:12 }} onClick={submit}>
+            <Ic n="key" s={16} />Đăng nhập
+          </button>
+
+          {/* Demo accounts */}
+          <div style={{ borderTop:"1px solid var(--bdr)", paddingTop:14 }}>
+            <div className="label" style={{ marginBottom:10 }}>Tài khoản demo</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {[
+                { role:"owner",   user:"owner",   pass:"owner123",   label:"👑 Chủ cửa hàng" },
+                { role:"manager", user:"manager", pass:"manager123", label:"🧑‍💼 Quản lý" },
+                { role:"sale",    user:"sale1",   pass:"sale123",    label:"👤 Nhân viên BH" },
+              ].map(a => (
+                <button key={a.role} className="btn btn-ghost btn-sm" style={{ justifyContent:"flex-start", gap:8 }}
+                  onClick={()=>{ setUname(a.user); setPass(a.pass); setErr(""); }}>
+                  <span>{a.label}</span>
+                  <span style={{ color:"var(--muted)", fontSize:11 }}>{a.user} / {a.pass}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// MAIN APP
+// ════════════════════════════════════════════════════════
+function App() {
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { const s = localStorage.getItem("sp3_session"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+
+  const [users,      setUsers]     = useLS("sp3_users",     SEED_USERS);
+  const [products,   setProducts]  = useLS("sp3_products",  SEED_DATA.products);
+  const [customers,  setCusts]     = useLS("sp3_customers", SEED_DATA.customers);
+  const [suppliers,  setSuppliers] = useLS("sp3_suppliers", SEED_DATA.suppliers);
+  const [orders,     setOrders]    = useLS("sp3_orders",    SEED_DATA.orders);
+  const [purchases,  setPurchases] = useLS("sp3_purchases", SEED_DATA.purchases);
+  const [auditLog,   setAuditLog]  = useLS("sp3_audit",     SEED_DATA.auditLog);
+
+  const [page,      setPage]    = useState("dashboard");
+  const [sideOpen,  setSideOpen] = useState(true);
+  const [modal,     setModal]   = useState(null);
+  const [printOrder,setPO]      = useState(null);
+  const [toast,     setToast]   = useState(null);
+  const [selectedOrderId, setSelectedOrderId]       = useState(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+
+  // Draft storage: per-user key
+  const draftKey = currentUser ? `sp3_draft_${currentUser.id}` : null;
+
+  const addLog = useCallback((action, detail) => {
+    if (!currentUser) return;
+    setAuditLog(prev => [makeAuditEntry(currentUser, action, detail), ...prev].slice(0, 500));
+  }, [currentUser, setAuditLog]);
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const login = (u) => {
+    localStorage.setItem("sp3_session", JSON.stringify(u));
+    setCurrentUser(u);
+    // log after state set (next tick)
+    setTimeout(() => {
+      setAuditLog(prev => [makeAuditEntry(u, "login", `Đăng nhập từ ${navigator.userAgent.includes("Mobile")?"mobile":"desktop"}`), ...prev].slice(0, 500));
+    }, 0);
+  };
+
+  const logout = () => {
+    addLog("logout", "Đăng xuất khỏi hệ thống");
+    localStorage.removeItem("sp3_session");
+    setCurrentUser(null);
+  };
+
+  const reset = () => {
+    ["sp3_users","sp3_products","sp3_customers","sp3_suppliers","sp3_orders","sp3_purchases","sp3_audit"].forEach(k=>localStorage.removeItem(k));
+    setUsers(SEED_USERS); setProducts(SEED_DATA.products); setCusts(SEED_DATA.customers);
+    setSuppliers(SEED_DATA.suppliers); setOrders(SEED_DATA.orders);
+    setPurchases(SEED_DATA.purchases); setAuditLog(SEED_DATA.auditLog);
+    showToast("Đã khôi phục dữ liệu mẫu");
+  };
+
+  // Sync currentUser with users list (e.g. if name/role changed)
+  useEffect(() => {
+    if (!currentUser) return;
+    const updated = users.find(u => u.id === currentUser.id);
+    if (updated && (updated.name !== currentUser.name || updated.role !== currentUser.role)) {
+      const next = { ...currentUser, name: updated.name, role: updated.role };
+      localStorage.setItem("sp3_session", JSON.stringify(next));
+      setCurrentUser(next);
+    }
+    if (updated && !updated.active) logout();
+  }, [users]);
+
+  if (!currentUser) return <><style>{CSS}</style><LoginPage users={users} onLogin={login} /></>;
+
+  const u = currentUser;
+
+  const nav = [
+    { id:"dashboard", label:"Tổng quan",        icon:"home",   perm:null },
+    { id:"orders",    label:"Đơn hàng",          icon:"cart",   perm:null },
+    { id:"purchases", label:"Nhập hàng",         icon:"truck",  perm:"purchase_view" },
+    { id:"products",  label:"Sản phẩm / Kho",    icon:"box",    perm:"product_view" },
+    { id:"customers", label:"Khách hàng",         icon:"users",  perm:"customer_view" },
+    { id:"suppliers", label:"Nhà cung cấp",       icon:"truck",  perm:"supplier_view" },
+    { id:"report",    label:"Báo cáo",            icon:"bar",    perm:"report_view" },
+    { id:"audit",     label:"Lịch sử thao tác",   icon:"log",    perm:"audit_view_own" },
+    { id:"usermgmt",  label:"Quản lý tài khoản",  icon:"shield", perm:"user_manage" },
+    { id:"backup",    label:"Sao lưu dữ liệu",    icon:"save",   perm:"user_manage" },
+  ].filter(n => !n.perm || can(u, n.perm));
+
+  const ctx = { u, can, users, setUsers, products, setProducts, customers, setCusts, suppliers, setSuppliers, orders, setOrders, purchases, setPurchases, auditLog, setAuditLog, addLog, setModal, showToast, setPO, draftKey };
+
+  const printInvoice = (order) => {
+    const cust = customers.find(c => c.id === order.customerId) || {};
+    const f = (n) => new Intl.NumberFormat("vi-VN").format(n || 0);
+    const totalQty = (order.items||[]).reduce((s,it) => s + it.qty, 0);
+    const now = new Date();
+    const printDate = `${String(now.getDate()).padStart(2,"0")}-${String(now.getMonth()+1).padStart(2,"0")}-${now.getFullYear()}`;
+    const qrUrl = `https://img.vietqr.io/image/MB-0982228882-compact2.png?amount=${order.total}&addInfo=${encodeURIComponent("TT "+order.code)}&accountName=LE%20HANG%20NGA`;
+
+    const rows = (order.items||[]).map((it,i) => `
+      <tr>
+        <td style="text-align:center">${i+1}</td>
+        <td>${it.productName||""}</td>
+        <td style="text-align:center">${it.unit||""}</td>
+        <td style="text-align:center">${it.qty||0}</td>
+        <td style="text-align:right">${f(it.price)}</td>
+        <td style="text-align:right">${f((it.qty||0)*(it.price||0))}</td>
+      </tr>`).join("");
+
+    const html = `<!DOCTYPE html><html lang="vi"><head>
+<meta charset="UTF-8"/>
+<title>Hóa đơn ${order.code}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:Arial,sans-serif;font-size:12px;color:#000;background:#fff;padding:18px 28px;}
+  .header{text-align:center;margin-bottom:8px;line-height:1.6;}
+  .header .company{font-size:15px;font-weight:800;}
+  .title-box{text-align:center;border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:6px 0;margin:8px 0 10px;}
+  .title-box h2{font-size:18px;font-weight:800;letter-spacing:1px;margin-bottom:2px;}
+  .cust-info{margin-bottom:10px;line-height:1.8;}
+  table{width:100%;border-collapse:collapse;margin-bottom:6px;}
+  th,td{border:1px solid #333;padding:5px 7px;font-size:12px;}
+  thead th{background:#f0f0f0;text-align:center;font-weight:700;}
+  .total-row td{font-weight:800;font-size:13px;}
+  .sigs{display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;}
+  .sig-box{text-align:center;width:30%;}
+  .sig-line{border-top:1px dashed #999;margin-top:56px;padding-top:4px;}
+  .sig-center{text-align:center;width:36%;}
+  .qr-img{width:90px;height:90px;object-fit:contain;display:block;margin:4px auto 0;}
+  .napas{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:3px;font-size:10px;font-weight:800;}
+  @media print{body{padding:10px 20px;}}
+</style>
+</head><body>
+<div class="header">
+  <div class="company">Công ty Nội Thất Gỗ Minh Duy</div>
+  <div><i>Showroom: 1065 Đê La Thành, Ngọc Khánh, Ba Đình, Hà Nội</i></div>
+  <div>ĐT/Zalo 034.920.9944- 098.222.8882</div>
+  <div><i>Xuất kho: 59/61 Tiến Thành - Hà Đông - Hà Nội</i></div>
+  <div>TK: Lê Hằng Nga-0982228882-MB-NH TMCP Quân đội</div>
+</div>
+<div class="title-box">
+  <h2>HOÁ ĐƠN BÁN HÀNG</h2>
+  <div>Số HD: <b>${order.code}</b></div>
+</div>
+<div class="cust-info">
+  <div>Tên khách hàng: <b>${order.customerName||""}</b></div>
+  <div>Địa chỉ : ${cust.address||"—"}</div>
+  <div>Điện thoại: ${cust.phone||"—"}</div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th style="width:28px">STT</th>
+      <th>Sản phẩm</th>
+      <th style="width:55px">Đơn vị</th>
+      <th style="width:35px">SL</th>
+      <th style="width:90px">Đơn giá</th>
+      <th style="width:98px">Thành tiền</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows}
+    <tr class="total-row">
+      <td colspan="3" style="text-align:right;font-weight:800">Tổng</td>
+      <td style="text-align:center;font-weight:800">${totalQty}</td>
+      <td></td>
+      <td style="text-align:right;font-weight:800">${f(order.total)}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="sigs">
+  <div class="sig-box">
+    <div><i>Người mua hàng</i></div>
+    <div class="sig-line">&nbsp;</div>
+  </div>
+  <div class="sig-center">
+    <div><i>Người vận chuyển</i></div>
+    <img class="qr-img" src="${qrUrl}" alt="QR thanh toán"/>
+    <div class="napas">
+      <span style="color:#e05">napas</span><span style="color:#005baa">247</span>
+      <span style="color:#e05">⚡</span><span style="color:#005baa">MSB</span>
+    </div>
+  </div>
+  <div class="sig-box">
+    <div><b>Ngày: ${printDate}</b></div>
+    <div style="font-size:11px;font-weight:700;margin-top:2px">LE HANG NGA MSB</div>
+    <div class="sig-line">&nbsp;</div>
+  </div>
+</div>
+<script>window.onload=()=>{window.print();setTimeout(()=>window.close(),800);}<\/script>
+</body></html>`;
+
+    const w = window.open("","_blank","width=700,height=900");
+    w.document.write(html);
+    w.document.close();
+  };
+
+  return (
+    <>
+      <style>{CSS}</style>
+
+      {/* TOAST */}
+      {toast && (
+        <div className="toast-enter" style={{ position:"fixed", bottom:24, right:24, zIndex:9999, background: toast.type==="success"?"var(--acc)":"var(--danger)", color:"#0e1016", padding:"10px 20px", borderRadius:10, fontWeight:700, fontSize:13, boxShadow:"0 8px 24px #00000055" }}>
+          {toast.type==="success"?"✓ ":"✕ "}{toast.msg}
+        </div>
+      )}
+
+      {modal && (
+        <div className="modal-bg">
+          <div className="modal fade-in" onClick={e=>e.stopPropagation()}>{modal}</div>
+        </div>
+      )}
+
+      <div style={{ display:"flex", minHeight:"100vh" }}>
+        {/* SIDEBAR */}
+        <div style={{ width:sideOpen?224:0, minWidth:sideOpen?224:0, background:"var(--sur)", borderRight:"1px solid var(--bdr)", display:"flex", flexDirection:"column", overflow:"hidden", transition:"all 0.2s", position:"sticky", top:0, height:"100vh" }}>
+          <div style={{ padding:"18px 14px 14px", borderBottom:"1px solid var(--bdr)" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ width:36, height:36, background:"linear-gradient(135deg,#00d4aa,#0055ff)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <Ic n="shield" s={18} />
+              </div>
+              <div>
+                <div style={{ fontWeight:800, fontSize:14, color:"var(--acc)" }}>SalesPro</div>
+                <div style={{ fontSize:10, color:"var(--muted)" }}>v3 — Phân quyền 3 cấp</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ flex:1, overflowY:"auto", padding:"10px 10px", display:"flex", flexDirection:"column", gap:2 }}>
+            {nav.map(n => (
+              <div key={n.id} className={`nav-item${page===n.id?" active":""}`}
+                onClick={()=>{ setPage(n.id); if(window.innerWidth<768) setSideOpen(false); }}>
+                <Ic n={n.icon} s={16} />{n.label}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding:"12px 10px", borderTop:"1px solid var(--bdr)" }}>
+            {/* Current user info */}
+            <div style={{ padding:"8px 14px", marginBottom:4, background:"var(--sur2)", borderRadius:8 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:3 }}>{u.name}</div>
+              <RoleBadge role={u.role} />
+            </div>
+            <div className="nav-item" style={{ fontSize:12 }} onClick={reset}><Ic n="refresh" s={14} />Reset demo</div>
+            <div className="nav-item" style={{ color:"var(--danger)" }} onClick={logout}><Ic n="logout" s={16} />Đăng xuất</div>
+          </div>
+        </div>
+
+        {/* MAIN */}
+        <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
+          {/* TOPBAR */}
+          <div style={{ background:"var(--sur)", borderBottom:"1px solid var(--bdr)", padding:"0 20px", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:100 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <button className="btn btn-ghost btn-sm" style={{ padding:"6px 8px" }} onClick={()=>setSideOpen(v=>!v)}><Ic n="menu" s={18} /></button>
+              <span style={{ fontWeight:700, fontSize:15 }}>{nav.find(n=>n.id===page)?.label}</span>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span className="hide-mobile" style={{ fontSize:12, color:"var(--muted)" }}>{todayStr()}</span>
+              <RoleBadge role={u.role} />
+            </div>
+          </div>
+
+          {/* PAGE */}
+          <div style={{ flex:1, overflowY:"auto", padding:20 }} className="fade-in" key={page}>
+            {page==="dashboard"        && <Dashboard ctx={ctx} setPage={setPage} setSelectedOrderId={setSelectedOrderId} setSelectedCustomerId={setSelectedCustomerId} />}
+            {page==="orders"           && <OrdersPage ctx={ctx} printInvoice={printInvoice} setPage={setPage} setSelectedOrderId={setSelectedOrderId} setSelectedCustomerId={setSelectedCustomerId} />}
+            {page==="order_detail"     && <OrderDetailPage ctx={ctx} orderId={selectedOrderId} setPage={setPage} setSelectedCustomerId={setSelectedCustomerId} printInvoice={printInvoice} />}
+            {page==="customer_detail"  && <CustomerDetailPage ctx={ctx} customerId={selectedCustomerId} setPage={setPage} setSelectedOrderId={setSelectedOrderId} />}
+            {page==="purchases"        && <PurchasesPage ctx={ctx} />}
+            {page==="products"         && <ProductsPage ctx={ctx} />}
+            {page==="customers"        && <CustomersPage ctx={ctx} setPage={setPage} setSelectedCustomerId={setSelectedCustomerId} />}
+            {page==="suppliers"        && <SuppliersPage ctx={ctx} />}
+            {page==="report"           && <ReportPage ctx={ctx} />}
+            {page==="audit"            && <AuditPage ctx={ctx} />}
+            {page==="usermgmt"         && <UserMgmtPage ctx={ctx} />}
+            {page==="backup"           && <BackupPage ctx={ctx} />}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// PERMISSION GATE
+// ════════════════════════════════════════════════════════
+function Gate({ perm, user, fallback = null, children }) {
+  if (can(user, perm)) return children;
+  if (fallback) return fallback;
+  return (
+    <div className="perm-denied">
+      <Ic n="lock" s={40} />
+      <div style={{ fontWeight:700, fontSize:16, color:"var(--text)" }}>Không có quyền truy cập</div>
+      <div style={{ fontSize:13 }}>Chức năng này yêu cầu quyền cao hơn. Liên hệ Chủ cửa hàng.</div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// DASHBOARD
+// ════════════════════════════════════════════════════════
+function Dashboard({ ctx, setPage, setSelectedOrderId, setSelectedCustomerId }) {
+  const { u, orders, products, customers, purchases } = ctx;
+  const myOrders = can(u,"order_view_all") ? orders : orders.filter(o=>o.createdBy===u.id);
+  const revenue  = myOrders.reduce((s,o)=>s+o.total, 0);
+  const debt     = myOrders.reduce((s,o)=>s+(o.isPaid?0:o.total), 0);
+  const pDebt    = can(u,"purchase_view") ? purchases.reduce((s,p)=>s+(p.total-p.paid),0) : null;
+  const lowStock = products.filter(p=>p.stock<50);
+
+  const pendingOrders = myOrders.filter(o=>!o.approved);
+  const recentOrders  = [...myOrders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+
+  const goOrder = (oid) => { setSelectedOrderId(oid); setPage("order_detail"); };
+  const goCust  = (cid) => { setSelectedCustomerId(cid); setPage("customer_detail"); };
+
+  const stats = [
+    { label: can(u,"order_view_all")?"Doanh thu (tất cả)":"Doanh thu (của tôi)", val:fmt(revenue), color:"var(--acc)" },
+    { label: "Công nợ KH",    val:fmt(debt),  color:"var(--yellow)" },
+    ...(pDebt!==null?[{ label:"Nợ NCC", val:fmt(pDebt), color:"var(--info)" }]:[]),
+    { label: "Kho sắp hết",   val:lowStock.length+" SP", color:"var(--danger)" },
+  ];
+
+  const OrderTable = ({ rows, showApprove }) => (
+    <div className="table-wrap">
+      <table className="table">
+        <thead><tr>
+          <th>Mã đơn</th><th>Khách hàng</th><th>Giá trị</th><th>NV tạo</th><th>TT</th>
+        </tr></thead>
+        <tbody>
+          {rows.length===0 && <tr><td colSpan={5} style={{ textAlign:"center", color:"var(--muted)", padding:20, fontSize:12 }}>Không có đơn nào</td></tr>}
+          {rows.map(o=>(
+            <tr key={o.id}>
+              <td><a className="link" onClick={()=>goOrder(o.id)}>{o.code}</a></td>
+              <td><a className="link-name" onClick={()=>goCust(o.customerId)}>{o.customerName}</a></td>
+              <td style={{ fontWeight:700 }}>{fmt(o.total)}</td>
+              <td style={{ color:"var(--muted)", fontSize:12 }}>{o.createdByName}</td>
+              <td><StatusBadge status={o.status}/></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* Stats row — 4 card đều nhau */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
+        {stats.map((s,i)=>(
+          <div key={i} className="card" style={{ borderLeft:`3px solid ${s.color}`, padding:"14px 16px" }}>
+            <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600, marginBottom:4 }}>{s.label}</div>
+            <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Main layout: 2 bảng trái | kho phải — cột kho thẳng hàng với stat card thứ 4 */}
+      <div style={{ display:"grid", gridTemplateColumns:"3fr 1fr", gap:12, alignItems:"start" }}>
+
+        {/* LEFT: 2 bảng đơn */}
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Đơn chờ duyệt */}
+          <div className="card" style={{ padding:0 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 18px", borderBottom:"1px solid var(--bdr)" }}>
+              <span style={{ fontWeight:700, fontSize:14 }}>📋 Đơn chờ duyệt</span>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setPage("orders")}>Xem tất cả</button>
+            </div>
+            <OrderTable rows={pendingOrders} />
+          </div>
+          {/* Đơn gần đây */}
+          <div className="card" style={{ padding:0 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 18px", borderBottom:"1px solid var(--bdr)" }}>
+              <span style={{ fontWeight:700, fontSize:14 }}>📦 Đơn gần đây</span>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setPage("orders")}>Xem tất cả</button>
+            </div>
+            <OrderTable rows={recentOrders} />
+          </div>
+        </div>
+
+        {/* RIGHT: Kho sắp hết — cùng chiều rộng với stat card "Kho sắp hết", kéo dài xuống */}
+        <div className="card" style={{ padding:"14px 16px", position:"sticky", top:16 }}>
+          <div style={{ fontWeight:700, fontSize:14, marginBottom:10 }}>⚠ Kho sắp hết</div>
+          {lowStock.length===0 && <div style={{ color:"var(--muted)", fontSize:13 }}>Kho ổn định ✓</div>}
+          <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:"calc(100vh - 220px)", overflowY:"auto" }}>
+            {lowStock.map(p=>(
+              <div key={p.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"7px 10px", background:"var(--sur2)", borderRadius:8 }}>
+                <div style={{ minWidth:0, flex:1, marginRight:8 }}>
+                  <div style={{ fontWeight:600, fontSize:12, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                  <div style={{ fontSize:10, color:"var(--muted)" }}>{p.code}</div>
+                </div>
+                <span className={`badge ${p.stock<30?"badge-red":"badge-yellow"}`} style={{ flexShrink:0 }}>{p.stock}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// ORDERS
+// ════════════════════════════════════════════════════════
+function OrdersPage({ ctx, printInvoice, setPage, setSelectedOrderId, setSelectedCustomerId }) {
+  const { u, orders, setOrders, customers, setCusts, products, setProducts, addLog, setModal, showToast } = ctx;
+  const [search, setSearch] = useState("");
+
+  const visibleOrders = can(u,"order_view_all") ? orders : orders.filter(o=>o.createdBy===u.id);
+  const matchSearch = (o) => o.code.toLowerCase().includes(search.toLowerCase()) || o.customerName.toLowerCase().includes(search.toLowerCase());
+
+  // Tách 2 nhóm — pending sắp theo địa chỉ (TP > đường > số nhà)
+  const pending  = visibleOrders.filter(o=>!o.approved && matchSearch(o)).sort((a,b) => {
+    const ca = customers.find(x=>x.id===a.customerId);
+    const cb = customers.find(x=>x.id===b.customerId);
+    return (ca?.address||"").localeCompare(cb?.address||"","vi");
+  });
+  const exported = visibleOrders.filter(o=> o.approved && matchSearch(o));
+
+  // ===== ACTIONS =====
+  const approveOrder = (id) => {
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    setProducts(ps=>ps.map(p=>{ const it=o.items.find(i=>i.productId===p.id); return it?{...p,stock:Math.max(0,p.stock-it.qty)}:p; }));
+    setOrders(os=>os.map(x=>x.id===id?{...x,approved:true,approvedAt:nowStr(),approvedBy:u.id}:x));
+    addLog("order_approve",`Duyệt & xuất kho đơn ${o.code} — ${fmt(o.total)}`);
+    showToast("Đã duyệt — đã trừ tồn kho");
+  };
+
+  const toggleDelivered = (id) => {
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    const next = !o.delivered;
+    if(!window.confirm(next ? `Xác nhận đã giao đơn ${o.code} cho ${o.customerName}?` : `Hoàn tác giao hàng đơn ${o.code}?`)) return;
+    setOrders(os=>os.map(x=>x.id===id?{...x,delivered:next, deliveredAt: next?nowStr():null}:x));
+    addLog(next?"order_delivered":"order_undelivered", `${next?"Xác nhận đã giao":"Hoàn tác giao"} đơn ${o.code}`);
+    showToast(next?"Đã giao hàng":"Chuyển về chưa giao");
+  };
+
+  const toggleReturned = (id) => {
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    if(o.returned) {
+      // Hủy trả hàng
+      if(!window.confirm(`Hủy trả hàng đơn ${o.code}?`)) return;
+      setOrders(os=>os.map(x=>x.id===id?{...x,returned:false,returnReason:"",returnItems:null}:x));
+      setProducts(ps=>ps.map(p=>{ const it=o.items.find(i=>i.productId===p.id); return it?{...p,stock:Math.max(0,p.stock-it.qty)}:p; }));
+      addLog("order_returned",`Hủy trả hàng đơn ${o.code}`);
+      showToast("Hủy trả hàng");
+    } else {
+      // Mở modal nhập thông tin trả
+      setModal(
+        <ReturnForm order={o} products={products} onConfirm={(reason, returnItems) => {
+          setOrders(os=>os.map(x=>x.id===id?{...x,returned:true,returnReason:reason,returnItems}:x));
+          // Hoàn kho: cả SP của đơn lẫn SP bổ sung nhập thêm
+          setProducts(ps=>ps.map(p=>{
+            const it = returnItems.find(i=>i.productId===p.id);
+            return it ? {...p, stock: p.stock + it.qty} : p;
+          }));
+          addLog("order_returned",`Đánh dấu trả hàng đơn ${o.code} — Lý do: ${reason}`);
+          setModal(null); showToast("Đã đánh dấu trả hàng (hoàn kho)");
+        }} onClose={()=>setModal(null)} />
+      );
+    }
+  };
+
+  const togglePaid = (id) => {
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    // Chỉ owner mới được xác nhận thanh toán
+    if(u.role !== "owner"){ showToast("Chỉ Chủ cửa hàng mới được xác nhận thanh toán","error"); return; }
+    const next = !o.isPaid;
+    if(!window.confirm(next ? `Xác nhận đã thu tiền đơn ${o.code} — ${fmt(o.total)}?` : `Hủy thanh toán đơn ${o.code}?`)) return;
+    setOrders(os=>os.map(x=>x.id===id?{...x,isPaid:next, paid: next?x.total:0, status: next?"paid":"unpaid"}:x));
+    addLog(next?"order_paid":"order_unpaid", `${next?"Thu tiền":"Hủy thanh toán"} đơn ${o.code}`);
+    showToast(next?"Đã thanh toán":"Đã hủy thanh toán");
+  };
+
+  const deleteOrder = (id) => {
+    const o = orders.find(x=>x.id===id); if(!o) return;
+    if(!window.confirm(`Xóa đơn ${o.code}?`)) return;
+    setOrders(os=>os.filter(x=>x.id!==id));
+    addLog("order_delete",`Xóa đơn ${o.code}`);
+    showToast("Đã xóa");
+  };
+
+  const exportXLS = () => {
+    const rows = visibleOrders.filter(matchSearch).map(o=>{
+      const c = customers.find(x=>x.id===o.customerId);
+      return { "Mã đơn":o.code, "Khách":o.customerName, "Địa chỉ":c?.address||"", "ĐT":c?.phone||"", "Ngày":o.date, "Tổng":o.total, "Người tạo":o.createdByName, "Đã duyệt":o.approved?"Có":"Chờ", "Giao hàng":o.delivered?"Đã giao":"Chưa", "Trả hàng":o.returned?"Có":"Không", "Thanh toán":o.isPaid?"Đã TT":"Chưa TT" };
+    });
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Đơn hàng"); XLSX.writeFile(wb,"don-hang.xlsx"); showToast("Đã xuất Excel");
+  };
+
+  const openNew = () => setModal(
+    <OrderForm u={u} customers={customers} products={products}
+      onAddCustomer={(nc) => { setCusts(cs=>[...cs,nc]); addLog("customer_create",`Thêm KH nhanh: ${nc.name}`); }}
+      onSave={order=>{
+        const code=`DH${String(orders.length+1).padStart(3,"0")}`;
+        setOrders(os=>[{...order,id:uid(),code,approved:false,delivered:false,returned:false,isPaid:order.paid>=order.total},...os]);
+        setCusts(cs=>cs.map(c=>c.id===order.customerId?{...c,totalBought:(c.totalBought||0)+order.total}:c));
+        addLog("order_create",`Tạo đơn ${code} — ${order.customerName} — ${fmt(order.total)}`);
+        setModal(null); showToast("Đã tạo đơn — chờ duyệt xuất kho");
+      }} onClose={()=>setModal(null)} />
+  );
+
+  const openCustomer = (cid) => { setSelectedCustomerId(cid); setPage("customer_detail"); };
+  const openOrder = (oid) => { setSelectedOrderId(oid); setPage("order_detail"); };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        <SInput value={search} onChange={setSearch} placeholder="Tìm đơn hàng / khách hàng..." />
+        <button className="btn btn-ghost btn-sm" onClick={exportXLS}><Ic n="excel" s={14}/>Xuất Excel</button>
+        {can(u,"order_create") && <button className="btn btn-primary" onClick={openNew}><Ic n="plus" s={14}/>Tạo đơn</button>}
+      </div>
+      {!can(u,"order_view_all") && <div style={{ fontSize:12, color:"var(--yellow)", background:"#f59e0b11", padding:"6px 12px", borderRadius:8 }}>⚡ Bạn chỉ thấy đơn hàng do mình tạo</div>}
+
+      {/* ============== CHỜ DUYỆT ============== */}
+      <div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+          <span className="badge badge-yellow" style={{ fontSize:12 }}>📋 CHỜ DUYỆT</span>
+          <span style={{ fontSize:13, color:"var(--muted)" }}>{pending.length} đơn — chưa xuất kho</span>
+        </div>
+        <div className="card" style={{ padding:0 }}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Mã đơn</th><th>Khách hàng</th>
+                  <th className="hide-mobile">Địa chỉ</th><th className="hide-mobile">Điện thoại</th>
+                  <th>Ngày</th><th>Tổng tiền</th>
+                  <th className="hide-mobile">Người tạo</th>
+                  <th style={{ textAlign:"right" }}>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.length===0 && <tr><td colSpan={8} style={{ textAlign:"center", color:"var(--muted)", padding:30 }}>Không có đơn chờ duyệt</td></tr>}
+                {pending.map(o=>{
+                  const c = customers.find(x=>x.id===o.customerId);
+                  return (
+                    <tr key={o.id}>
+                      <td><a className="link" onClick={()=>openOrder(o.id)}>{o.code}</a></td>
+                      <td><a className="link-name" onClick={()=>openCustomer(o.customerId)}>{o.customerName}</a></td>
+                      <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{c?.address||"—"}</td>
+                      <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{c?.phone||"—"}</td>
+                      <td style={{ color:"var(--muted)" }}>{o.date}</td>
+                      <td style={{ fontWeight:700 }}>{fmt(o.total)}</td>
+                      <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{o.createdByName}</td>
+                      <td>
+                        <div style={{ display:"flex", gap:5, justifyContent:"flex-end" }}>
+                          <button className="btn btn-ghost btn-xs" onClick={()=>printInvoice(o)} title="In đơn"><Ic n="print" s={13}/></button>
+                          {can(u,"order_delete") && <button className="btn btn-danger btn-xs" onClick={()=>deleteOrder(o.id)} title="Xóa"><Ic n="trash" s={13}/></button>}
+                          {can(u,"order_edit_any") && <button className="btn btn-primary btn-xs" onClick={()=>approveOrder(o.id)} title="Duyệt & xuất kho"><Ic n="check" s={13}/>Duyệt</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* ============== ĐÃ XUẤT KHO ============== */}
+      <div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+          <span className="badge badge-green" style={{ fontSize:12 }}>📦 ĐÃ XUẤT KHO</span>
+          <span style={{ fontSize:13, color:"var(--muted)" }}>{exported.length} đơn — đang giao / hoàn tất</span>
+        </div>
+        <div className="card" style={{ padding:0 }}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Mã đơn</th><th>Khách hàng</th>
+                  <th className="hide-mobile">Địa chỉ</th><th className="hide-mobile">Điện thoại</th>
+                  <th>Ngày</th><th>Tổng tiền</th>
+                  <th className="hide-mobile">Người tạo</th>
+                  <th>Giao hàng</th><th>Hàng trả</th><th>Thanh toán</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {exported.length===0 && <tr><td colSpan={11} style={{ textAlign:"center", color:"var(--muted)", padding:30 }}>Chưa có đơn nào đã xuất kho</td></tr>}
+                {exported.map(o=>{
+                  const c = customers.find(x=>x.id===o.customerId);
+                  return (
+                    <tr key={o.id}>
+                      <td><a className="link" onClick={()=>openOrder(o.id)}>{o.code}</a></td>
+                      <td><a className="link-name" onClick={()=>openCustomer(o.customerId)}>{o.customerName}</a></td>
+                      <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{c?.address||"—"}</td>
+                      <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{c?.phone||"—"}</td>
+                      <td style={{ color:"var(--muted)" }}>{o.date}</td>
+                      <td style={{ fontWeight:700 }}>{fmt(o.total)}</td>
+                      <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{o.createdByName}</td>
+                      <td>
+                        <button className={`badge ${o.delivered?"badge-green":"badge-red"} clickable`} onClick={()=>toggleDelivered(o.id)} title="Click để đổi">
+                          {o.delivered ? "✓ Đã giao" : "⏳ Chưa giao"}
+                        </button>
+                      </td>
+                      <td>
+                        <button className={`badge ${o.returned?"badge-red":"badge-green"} clickable`} onClick={()=>toggleReturned(o.id)} title="Click để đổi">
+                          {o.returned ? "↩ Có trả" : "Không"}
+                        </button>
+                      </td>
+                      <td>
+                        <button className={`badge ${o.isPaid?"badge-green":"badge-red"} clickable`} onClick={()=>togglePaid(o.id)} title="Click để đổi">
+                          {o.isPaid ? "✓ Đã TT" : "✕ Chưa TT"}
+                        </button>
+                      </td>
+                      <td>
+                        <div style={{ display:"flex", gap:5, justifyContent:"flex-end" }}>
+                          <button className="btn btn-ghost btn-xs" onClick={()=>printInvoice(o)} title="In"><Ic n="print" s={13}/></button>
+                          {can(u,"order_delete") && <button className="btn btn-danger btn-xs" onClick={()=>deleteOrder(o.id)}><Ic n="trash" s={13}/></button>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// ORDER DETAIL PAGE
+// ════════════════════════════════════════════════════════
+function OrderDetailPage({ ctx, orderId, setPage, setSelectedCustomerId, printInvoice }) {
+  const { orders, customers } = ctx;
+  const o = orders.find(x=>x.id===orderId);
+  if(!o) return <div style={{ padding:30, textAlign:"center", color:"var(--muted)" }}>Không tìm thấy đơn. <button className="btn btn-ghost btn-sm" onClick={()=>setPage("orders")}>← Quay lại</button></div>;
+  const c = customers.find(x=>x.id===o.customerId);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setPage("orders")}>← Danh sách đơn</button>
+        <button className="btn btn-primary btn-sm" onClick={()=>printInvoice(o)}><Ic n="print" s={14}/>In hóa đơn</button>
+      </div>
+
+      <div className="card">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:14, marginBottom:18 }}>
+          <div>
+            <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600, marginBottom:4 }}>MÃ ĐƠN</div>
+            <div className="mono" style={{ fontSize:22, fontWeight:800, color:"var(--acc)" }}>{o.code}</div>
+            <div style={{ fontSize:12, color:"var(--muted)", marginTop:6 }}>Ngày: <b style={{ color:"var(--text)" }}>{o.date}</b> · Người tạo: <b style={{ color:"var(--text)" }}>{o.createdByName}</b></div>
+          </div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <span className={`badge ${o.approved?"badge-green":"badge-yellow"}`}>{o.approved?"✓ Đã xuất kho":"⏳ Chờ duyệt"}</span>
+            {o.approved && <span className={`badge ${o.delivered?"badge-green":"badge-red"}`}>{o.delivered?"✓ Đã giao":"⏳ Chưa giao"}</span>}
+            {o.approved && <span className={`badge ${o.isPaid?"badge-green":"badge-red"}`}>{o.isPaid?"✓ Đã TT":"✕ Chưa TT"}</span>}
+            {o.returned && <span className="badge badge-red">↩ Hàng trả</span>}
+          </div>
+        </div>
+
+        <div style={{ background:"var(--sur2)", borderRadius:10, padding:14, marginBottom:18 }}>
+          <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600, marginBottom:6 }}>KHÁCH HÀNG</div>
+          <a className="link-name" style={{ fontSize:16, fontWeight:700 }} onClick={()=>{ setSelectedCustomerId(o.customerId); setPage("customer_detail"); }}>
+            {o.customerName} →
+          </a>
+          <div style={{ fontSize:13, color:"var(--muted)", marginTop:4 }}>📞 {c?.phone||"—"} · 📍 {c?.address||"—"}</div>
+        </div>
+
+        <div style={{ fontWeight:700, marginBottom:10 }}>Chi tiết hàng hóa</div>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>#</th><th>Sản phẩm</th><th>ĐVT</th><th style={{ textAlign:"right" }}>SL</th><th style={{ textAlign:"right" }}>Đơn giá</th><th style={{ textAlign:"right" }}>Thành tiền</th></tr></thead>
+            <tbody>
+              {(o.items||[]).map((it,i)=>(
+                <tr key={i}>
+                  <td style={{ color:"var(--muted)" }}>{i+1}</td>
+                  <td style={{ fontWeight:600 }}>{it.productName}</td>
+                  <td style={{ color:"var(--muted)" }}>{it.unit}</td>
+                  <td style={{ textAlign:"right" }}>{it.qty}</td>
+                  <td style={{ textAlign:"right", color:"var(--muted)" }}>{fmt(it.price)}</td>
+                  <td style={{ textAlign:"right", fontWeight:700 }}>{fmt(it.qty*it.price)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display:"flex", justifyContent:"flex-end", padding:"14px 16px", background:"var(--sur2)", borderRadius:10, marginTop:14, fontSize:16, fontWeight:800 }}>
+          Tổng: <span style={{ color:"var(--acc)", marginLeft:12 }}>{fmt(o.total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// CUSTOMER DETAIL PAGE
+// ════════════════════════════════════════════════════════
+function CustomerDetailPage({ ctx, customerId, setPage, setSelectedOrderId }) {
+  const { customers, orders } = ctx;
+  const c = customers.find(x=>x.id===customerId);
+  if(!c) return <div style={{ padding:30, textAlign:"center", color:"var(--muted)" }}>Không tìm thấy KH. <button className="btn btn-ghost btn-sm" onClick={()=>setPage("customers")}>← Quay lại</button></div>;
+
+  const custOrders = orders.filter(o=>o.customerId===customerId);
+  const totalRev = custOrders.reduce((s,o)=>s+o.total,0);
+  const totalPaid = custOrders.filter(o=>o.isPaid).reduce((s,o)=>s+o.total,0);
+  const debt = totalRev - totalPaid;
+  const delivered = custOrders.filter(o=>o.delivered).length;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <button className="btn btn-ghost btn-sm" onClick={()=>setPage("customers")} style={{ alignSelf:"flex-start" }}>← Danh sách khách hàng</button>
+
+      <div className="card">
+        <div style={{ display:"flex", alignItems:"flex-start", gap:18, flexWrap:"wrap" }}>
+          <div style={{ width:64, height:64, borderRadius:16, background:"linear-gradient(135deg,#00d4aa,#0055ff)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, fontWeight:800, color:"#0e1016" }}>
+            {c.name?.charAt(0).toUpperCase()}
+          </div>
+          <div style={{ flex:1, minWidth:200 }}>
+            <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600 }}>{c.code}</div>
+            <div style={{ fontSize:22, fontWeight:800, marginBottom:8 }}>{c.name}</div>
+            <div style={{ fontSize:13, color:"var(--muted)" }}>📞 {c.phone||"—"}</div>
+            <div style={{ fontSize:13, color:"var(--muted)" }}>📍 {c.address||"—"}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:12 }}>
+        {[
+          { l:"Tổng đơn",       v:custOrders.length+" đơn", c:"var(--info)" },
+          { l:"Đã giao",        v:delivered+" đơn",         c:"var(--acc)" },
+          { l:"Tổng doanh thu", v:fmt(totalRev),            c:"var(--info)" },
+          { l:"Đã thanh toán",  v:fmt(totalPaid),           c:"var(--green)" },
+          { l:"Còn nợ",         v:fmt(debt),                c:debt>0?"var(--danger)":"var(--green)" },
+        ].map((s,i)=>(
+          <div key={i} className="card" style={{ borderTop:`3px solid ${s.c}` }}>
+            <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600, marginBottom:6 }}>{s.l}</div>
+            <div style={{ fontSize:16, fontWeight:800, color:s.c }}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card" style={{ padding:0 }}>
+        <div style={{ padding:"14px 18px", borderBottom:"1px solid var(--bdr)", fontWeight:700 }}>📋 Lịch sử đơn hàng</div>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Mã đơn</th><th>Ngày</th><th>Giá trị</th><th>Trạng thái</th><th>Giao hàng</th><th>TT</th></tr></thead>
+            <tbody>
+              {custOrders.length===0 && <tr><td colSpan={6} style={{ textAlign:"center", color:"var(--muted)", padding:30 }}>Chưa có đơn hàng</td></tr>}
+              {custOrders.map(o=>(
+                <tr key={o.id}>
+                  <td><a className="link" onClick={()=>{ setSelectedOrderId(o.id); setPage("order_detail"); }}>{o.code}</a></td>
+                  <td style={{ color:"var(--muted)" }}>{o.date}</td>
+                  <td style={{ fontWeight:700 }}>{fmt(o.total)}</td>
+                  <td><span className={`badge ${o.approved?"badge-green":"badge-yellow"}`}>{o.approved?"Đã xuất":"Chờ duyệt"}</span></td>
+                  <td>{o.approved && <span className={`badge ${o.delivered?"badge-green":"badge-red"}`}>{o.delivered?"Đã giao":"Chưa"}</span>}</td>
+                  <td>{o.approved && <span className={`badge ${o.isPaid?"badge-green":"badge-red"}`}>{o.isPaid?"Đã TT":"Chưa"}</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
+  const draftKey = `sp3_draft_order_${u.id}`;
+  const savedDraft = (() => { try { const s=localStorage.getItem(draftKey); return s?JSON.parse(s):null; } catch { return null; } })();
+
+  const [custSearch,  setCustSearch]  = useState("");
+  const [custId,      setCustId]      = useState(savedDraft?.custId || "");
+  const [showCustDD,  setShowCustDD]  = useState(false);
+  const [prodSearch,  setProdSearch]  = useState("");
+  const [showProdDD,  setShowProdDD]  = useState(false);
+  const [priceType,   setPriceType]   = useState("price");
+  const [items,       setItems]       = useState(savedDraft?.items || []);
+  const [paid,        setPaid]        = useState(savedDraft?.paid || 0);
+  const [discount,    setDiscount]    = useState(savedDraft?.discount || 0);
+  const [shippingFee, setShipFee]     = useState(savedDraft?.shippingFee || 0);
+  const [shipping,    setShipping]    = useState(savedDraft?.shipping || "self");
+  const [note,        setNote]        = useState(savedDraft?.note || "");
+  const [hasDraft,    setHasDraft]    = useState(!!savedDraft);
+
+  const saveDraft = () => {
+    localStorage.setItem(draftKey, JSON.stringify({ custId, items, paid, discount, shippingFee, shipping, note }));
+    setHasDraft(true);
+  };
+  const clearDraft = () => { localStorage.removeItem(draftKey); setHasDraft(false); };
+
+  const subtotal = items.reduce((s,i)=>s+i.qty*i.price, 0);
+  const total = Math.max(0, subtotal - discount + shippingFee);
+  const debt = Math.max(0, total - paid);
+
+  // New customer form state
+  const [newCustName,   setNewCustName]   = useState(custSearch);
+  const [newCustPhone,  setNewCustPhone]  = useState("");
+  const [newCustSoNha,  setNewCustSoNha]  = useState("");
+  const [newCustDuong,  setNewCustDuong]  = useState("");
+  const [newCustPhuong, setNewCustPhuong] = useState("");
+  const [newCustTP,     setNewCustTP]     = useState("");
+  const [showNewCust,   setShowNewCust]   = useState(false);
+
+  // Customer search — filter by name OR phone OR address. Show dropdown only when typing
+  const custFiltered = custSearch.trim()
+    ? customers.filter(c =>
+        c.name.toLowerCase().includes(custSearch.toLowerCase()) ||
+        (c.phone||"").includes(custSearch) ||
+        (c.code||"").toLowerCase().includes(custSearch.toLowerCase())
+      ).slice(0, 8)
+    : [];
+
+  const selectCustomer = (c) => { setCustId(c.id); setCustSearch(""); setShowCustDD(false); setShowNewCust(false); };
+
+  const handleCustInput = (val) => {
+    setCustSearch(val);
+    setCustId("");
+    setShowCustDD(true);
+    setNewCustName(val);
+    // Hide new-cust form while results match
+    setShowNewCust(false);
+  };
+
+  // When dropdown closes without picking — show new customer form if search has text
+  const handleCustBlur = () => {
+    setTimeout(() => {
+      setShowCustDD(false);
+      if (custSearch.trim() && !custId) setShowNewCust(true);
+    }, 180);
+  };
+
+  const submitNewCust = () => {
+    const addr = [newCustSoNha, newCustDuong, newCustPhuong, newCustTP].filter(Boolean).join(", ");
+    const nc = { id:uid(), code:`KH${String(customers.length+1).padStart(3,"0")}`, name:newCustName, phone:newCustPhone, address:addr, totalBought:0 };
+    onAddCustomer(nc);
+    setCustId(nc.id);
+    setShowNewCust(false);
+    setCustSearch("");
+  };
+
+  // Product search filter
+  const prodFiltered = prodSearch.trim()
+    ? products.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()) || (p.code||"").toLowerCase().includes(prodSearch.toLowerCase())).slice(0,10)
+    : [];
+
+  const addProduct = (p) => {
+    const usePrice = priceType === "retailPrice" ? (p.retailPrice || p.price) : p.price;
+    const existing = items.find(i=>i.productId===p.id);
+    if (existing) setItems(is=>is.map(x=>x.productId===p.id?{...x,qty:x.qty+1}:x));
+    else setItems(is=>[...is, { productId:p.id, productName:p.name, unit:p.unit, qty:1, price:usePrice, stock:p.stock }]);
+    setProdSearch(""); setShowProdDD(false);
+  };
+
+  const addCustomProduct = () => {
+    if (!prodSearch.trim()) return;
+    // Thêm vào đơn ngay — không bắt buộc thêm vào danh sách
+    setItems(is=>[...is, { productId:"custom_"+uid(), productName:prodSearch, unit:"Cái", qty:1, price:0, stock:999, isCustom:true }]);
+    setProdSearch(""); setShowProdDD(false);
+  };
+
+  const setItem = (idx,k,v) => setItems(is=>is.map((x,i)=>i===idx?{...x,[k]:v}:x));
+  const removeItem = (idx) => setItems(is=>is.filter((_,i)=>i!==idx));
+
+  const save = () => {
+    if (!custId) return;
+    if (items.length === 0) return;
+    const cust2 = customers.find(c=>c.id===custId);
+    const enriched = items.map(i=>({ productId:i.productId, productName:i.productName, unit:i.unit, qty:i.qty, price:i.price }));
+    onSave({ customerId:custId, customerName:cust2?.name, date:todayStr(), total, paid:Math.min(paid,total), status: paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, discount, shippingFee, shipping, note, createdBy:u.id, createdByName:u.name });
+    clearDraft();
+  };
+
+  const cust = customers.find(c=>c.id===custId);
+  const boxS = { background:"var(--sur2)", borderRadius:10, padding:"12px 14px", border:"1px solid var(--bdr)" };
+
+  return (
+    <div style={{ maxWidth:820 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <h3 style={{ fontWeight:800, fontSize:17 }}>Tạo đơn hàng mới</h3>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={saveDraft}><Ic n="save" s={14}/>Lưu nháp</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+        </div>
+      </div>
+      {hasDraft && <div style={{ fontSize:12, color:"var(--acc)", background:"#00d4aa0f", padding:"6px 12px", borderRadius:8, marginBottom:12, border:"1px solid #00d4aa22" }}>📂 Bản nháp đã lưu — <button onClick={clearDraft} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",fontSize:12,fontFamily:"inherit" }}>Xóa nháp</button></div>}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+        {/* ═══ THÔNG TIN KHÁCH HÀNG ═══ */}
+        <div style={boxS}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+            <Ic n="users" s={14}/>
+            <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Thông tin khách hàng</span>
+          </div>
+
+          {/* Search box */}
+          {!cust && (
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)", zIndex:1 }}><Ic n="search" s={14}/></span>
+              <input className="input" style={{ paddingLeft:34 }}
+                placeholder="Tìm tên, SĐT, mã KH... hoặc nhập tên khách mới"
+                value={custSearch}
+                onChange={e=>handleCustInput(e.target.value)}
+                onFocus={()=>{ if(custSearch.trim()) setShowCustDD(true); }}
+                onBlur={handleCustBlur}
+              />
+              {/* Dropdown results */}
+              {showCustDD && custFiltered.length>0 && (
+                <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:240, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                  {custFiltered.map(c=>(
+                    <div key={c.id}
+                      onMouseDown={()=>selectCustomer(c)}
+                      style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{c.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {c.code}</span></div>
+                      <div style={{ fontSize:11, color:"var(--muted)", display:"flex", gap:12, flexWrap:"wrap" }}>
+                        <span>📞 {c.phone||"—"}</span>
+                        <span>📍 {c.address||"—"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Selected customer card */}
+          {cust && (
+            <div style={{ background:"var(--bg)", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:14, color:"var(--acc)", marginBottom:3 }}>{cust.name}</div>
+                <div style={{ fontSize:12, color:"var(--muted)", display:"flex", gap:16, flexWrap:"wrap" }}>
+                  <span>📞 {cust.phone||"—"}</span>
+                  <span>📍 {cust.address||"—"}</span>
+                </div>
+              </div>
+              <button onMouseDown={()=>{ setCustId(""); setCustSearch(""); setShowNewCust(false); }} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:4 }}>
+                <Ic n="x" s={14}/>
+              </button>
+            </div>
+          )}
+
+          {/* New customer form — shown when search text doesn't match any existing KH */}
+          {showNewCust && !cust && (
+            <div style={{ background:"var(--bg)", borderRadius:8, padding:"12px 14px", marginTop:8, border:"1px dashed var(--acc)55" }}>
+              <div style={{ fontSize:11, color:"var(--acc)", fontWeight:700, marginBottom:10 }}>⚡ Khách mới — điền thông tin:</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>TÊN KHÁCH HÀNG *</label>
+                  <input className="input" value={newCustName} onChange={e=>setNewCustName(e.target.value)} placeholder="Tên KH..." style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ ĐIỆN THOẠI</label>
+                  <input className="input" value={newCustPhone} onChange={e=>setNewCustPhone(e.target.value)} placeholder="09xx..." style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"80px 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ NHÀ</label>
+                  <input className="input" value={newCustSoNha} onChange={e=>setNewCustSoNha(e.target.value)} placeholder="123" style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>ĐƯỜNG</label>
+                  <input className="input" value={newCustDuong} onChange={e=>setNewCustDuong(e.target.value)} placeholder="Đường..." style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>PHƯỜNG</label>
+                  <input className="input" value={newCustPhuong} onChange={e=>setNewCustPhuong(e.target.value)} placeholder="Phường..." style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>THÀNH PHỐ</label>
+                  <input className="input" value={newCustTP} onChange={e=>setNewCustTP(e.target.value)} placeholder="Hà Nội" style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn btn-primary btn-sm" onClick={submitNewCust} disabled={!newCustName.trim()}>
+                  <Ic n="plus" s={13}/>Thêm & chọn KH này
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>{ setShowNewCust(false); setCustSearch(""); }}>Bỏ qua</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ═══ THÔNG TIN SẢN PHẨM ═══ */}
+        <div style={boxS}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <Ic n="box" s={14}/>
+              <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Sản phẩm</span>
+              <span style={{ fontSize:11, color:"var(--muted)" }}>({items.length})</span>
+            </div>
+            {/* Chọn loại giá */}
+            <div style={{ display:"flex", gap:4 }}>
+              <button className={`btn btn-xs ${priceType==="price"?"btn-primary":"btn-ghost"}`} onClick={()=>setPriceType("price")}>Giá buôn</button>
+              <button className={`btn btn-xs ${priceType==="retailPrice"?"btn-primary":"btn-ghost"}`} onClick={()=>setPriceType("retailPrice")}>Giá lẻ</button>
+            </div>
+          </div>
+
+          {/* Search product */}
+          <div style={{ position:"relative", marginBottom:8 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
+              <input className="input" style={{ paddingLeft:34 }} placeholder="Tìm sản phẩm (SP đặc biệt: gõ tên rồi chọn 'Thêm SP này')..."
+                value={prodSearch}
+                onFocus={()=>setShowProdDD(true)}
+                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); }}
+                onBlur={()=>setTimeout(()=>setShowProdDD(false),180)}
+              />
+            </div>
+            {showProdDD && prodSearch.trim() && (
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:260, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                {prodFiltered.map(p=>(
+                  <div key={p.id} onMouseDown={()=>addProduct(p)}
+                    style={{ padding:"10px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22", display:"flex", justifyContent:"space-between", alignItems:"center" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{p.name}</div>
+                      <div style={{ fontSize:11, color:"var(--muted)" }}>{p.code} · {p.unit} · Buôn: {fmt(p.price)}{p.retailPrice?` · Lẻ: ${fmt(p.retailPrice)}`:""}</div>
+                    </div>
+                    <span className={`badge ${p.stock<30?"badge-red":p.stock<50?"badge-yellow":"badge-green"}`}>Kho: {p.stock}</span>
+                  </div>
+                ))}
+                {/* Thêm SP đặc biệt/đặt riêng không có trong danh sách */}
+                <div onMouseDown={addCustomProduct}
+                  style={{ padding:"10px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, display:"flex", alignItems:"center", gap:6 }}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <Ic n="plus" s={13}/> Thêm SP đặc biệt: "<b>{prodSearch}</b>"
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Items table */}
+          {items.length===0 && (
+            <div style={{ textAlign:"center", padding:"16px 10px", color:"var(--muted)" }}>
+              <span style={{ fontSize:12 }}>Tìm sản phẩm ở ô trên để thêm</span>
+            </div>
+          )}
+          {items.length>0 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              {/* Header */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 60px 68px 90px 80px 22px", gap:5, padding:"0 4px" }}>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700 }}>SẢN PHẨM</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>ĐVT</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>SL</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"right" }}>ĐƠN GIÁ</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"right" }}>THÀNH TIỀN</span>
+                <span></span>
+              </div>
+              {items.map((item,idx)=>(
+                <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 60px 68px 90px 80px 22px", gap:5, alignItems:"center", padding:"5px 4px", background:"var(--bg)", borderRadius:6 }}>
+                  <div>
+                    <div style={{ fontWeight:600, fontSize:12, lineHeight:1.2 }}>{item.productName}</div>
+                    {item.stock!==999 && <div style={{ fontSize:10, color:(item.stock||0)<item.qty?"var(--danger)":"var(--muted)" }}>Kho: {item.stock||"?"}</div>}
+                    {item.isCustom && <div style={{ fontSize:10, color:"var(--yellow)" }}>⚡ SP đặc biệt</div>}
+                  </div>
+                  <input className="input" value={item.unit} onChange={e=>setItem(idx,"unit",e.target.value)} style={{ padding:"3px 5px", fontSize:11, textAlign:"center" }}/>
+                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"center" }}/>
+                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"right" }}/>
+                  <div style={{ fontWeight:700, fontSize:12, color:"var(--acc)", textAlign:"right" }}>{fmt(item.qty*item.price)}</div>
+                  <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={13}/></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ═══ GHI CHÚ & GIAO HÀNG ═══ */}
+        <div style={boxS}>
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10 }}>
+            <Ic n="truck" s={14}/>
+            <span style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", color:"var(--muted)", letterSpacing:"0.06em" }}>Đóng gói & Giao hàng</span>
+          </div>
+
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+            {[
+              { v:"self",    label:"🚛 Tự giao" },
+              { v:"3rd",     label:"📦 Gửi vận chuyển" },
+              { v:"pickup",  label:"🏪 KH nhận tại kho" },
+              { v:"later",   label:"⏳ Giao hàng sau" },
+            ].map(opt=>(
+              <button key={opt.v}
+                className={`btn btn-sm ${shipping===opt.v?"btn-primary":"btn-ghost"}`}
+                onClick={()=>setShipping(opt.v)}
+                style={{ fontSize:12 }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div><label className="label">Ghi chú đơn hàng</label>
+            <textarea className="input" rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="VD: Hàng dễ vỡ, gọi trước khi giao..." style={{ resize:"vertical" }} />
+          </div>
+        </div>
+
+        {/* ═══ TỔNG TIỀN ═══ */}
+        <div style={{ ...boxS, borderColor:"var(--acc)33" }}>
+          <div className="form-row" style={{ marginBottom:12 }}>
+            <div><label className="label">Chiết khấu (đ)</label><input className="input" type="number" value={discount} onChange={e=>setDiscount(+e.target.value)} /></div>
+            <div><label className="label">Phí giao hàng (đ)</label><input className="input" type="number" value={shippingFee} onChange={e=>setShipFee(+e.target.value)} /></div>
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:4, fontSize:13, marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:"var(--muted)" }}>Tổng tiền {items.length} sản phẩm:</span>
+              <span>{fmt(subtotal)}</span>
+            </div>
+            {discount>0 && <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:"var(--muted)" }}>Chiết khấu:</span>
+              <span style={{ color:"var(--danger)" }}>-{fmt(discount)}</span>
+            </div>}
+            {shippingFee>0 && <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ color:"var(--muted)" }}>Phí giao hàng:</span>
+              <span>+{fmt(shippingFee)}</span>
+            </div>}
+            <div style={{ height:1, background:"var(--bdr)", margin:"4px 0" }} />
+            <div style={{ display:"flex", justifyContent:"space-between", fontWeight:800, fontSize:16 }}>
+              <span>Tổng cộng:</span>
+              <span style={{ color:"var(--acc)" }}>{fmt(total)}</span>
+            </div>
+          </div>
+
+          <div style={{ marginBottom:8 }}>
+            <label className="label">Khách trả ngay (đ)</label>
+            <input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)} style={{ fontSize:15, fontWeight:700 }} />
+          </div>
+
+          {debt>0 && <div style={{ background:"#f43f5e0f", border:"1px solid #f43f5e22", borderRadius:8, padding:"8px 12px", color:"var(--danger)", fontSize:13, fontWeight:600 }}>
+            ⚠ Khách phải trả: {fmt(debt)}
+          </div>}
+          {debt===0 && total>0 && <div style={{ background:"#10b9810f", border:"1px solid #10b98122", borderRadius:8, padding:"8px 12px", color:"var(--green)", fontSize:13, fontWeight:600 }}>
+            ✓ Khách đã trả đủ
+          </div>}
+        </div>
+
+        {/* ═══ BUTTONS ═══ */}
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Thoát</button>
+          <button className="btn btn-primary" onClick={save} disabled={!custId || items.length===0} style={{ padding:"10px 24px" }}>
+            <Ic n="check" s={15}/>Tạo đơn hàng
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Return form modal
+function ReturnForm({ order, products, onConfirm, onClose }) {
+  const [reason, setReason] = useState("");
+  // Danh sách SP trả: bắt đầu với SP của đơn
+  const [returnItems, setReturnItems] = useState(
+    (order.items||[]).map(it => ({
+      productId: it.productId,
+      productName: it.productName,
+      unit: it.unit || "",
+      qty: it.qty,
+      selected: true,
+      fromOrder: true,
+    }))
+  );
+  const [prodSearch, setProdSearch] = useState("");
+  const [showDD, setShowDD] = useState(false);
+
+  const toggleItem = (idx) => setReturnItems(is => is.map((x,i) => i===idx ? {...x, selected:!x.selected} : x));
+  const setQty = (idx, v) => setReturnItems(is => is.map((x,i) => i===idx ? {...x, qty: Math.max(0,v)} : x));
+  const removeExtra = (idx) => setReturnItems(is => is.filter((_,i) => i!==idx));
+
+  const prodFiltered = prodSearch.trim()
+    ? products.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()) || (p.code||"").toLowerCase().includes(prodSearch.toLowerCase())).slice(0,8)
+    : [];
+
+  const addReturnProduct = (p) => {
+    const exists = returnItems.find(x => x.productId === p.id);
+    if (exists) {
+      setReturnItems(is => is.map(x => x.productId===p.id ? {...x, qty: x.qty+1, selected:true} : x));
+    } else {
+      setReturnItems(is => [...is, { productId:p.id, productName:p.name, unit:p.unit||"", qty:1, selected:true, fromOrder:false }]);
+    }
+    setProdSearch(""); setShowDD(false);
+  };
+
+  const selectedItems = returnItems.filter(x => x.selected);
+
+  return (
+    <div style={{ minWidth:480 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <h3 style={{ fontWeight:800 }}>↩ Trả hàng — {order.code}</h3>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+        {/* SP của đơn hàng */}
+        <div>
+          <label className="label">Sản phẩm trả lại</label>
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            {returnItems.map((it, idx) => (
+              <div key={idx} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", background: it.selected ? "var(--sur2)" : "transparent", borderRadius:8, border:"1px solid var(--bdr)" }}>
+                <input type="checkbox" checked={it.selected} onChange={()=>toggleItem(idx)} style={{ cursor:"pointer" }} />
+                <span style={{ flex:1, fontWeight:600, fontSize:13 }}>
+                  {it.productName}
+                  {!it.fromOrder && <span style={{ marginLeft:6, fontSize:10, color:"var(--yellow)", background:"#f59e0b11", padding:"1px 6px", borderRadius:4 }}>bổ sung</span>}
+                </span>
+                <span style={{ fontSize:12, color:"var(--muted)" }}>SL:</span>
+                <input className="input" type="number" min="0" value={it.qty}
+                  onChange={e=>setQty(idx,+e.target.value)}
+                  disabled={!it.selected}
+                  style={{ width:70, padding:"4px 8px", textAlign:"center" }} />
+                {!it.fromOrder && (
+                  <button onClick={()=>removeExtra(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:2 }}><Ic n="x" s={13}/></button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tìm thêm SP bất kỳ để nhập trả */}
+        <div>
+          <label className="label">Thêm sản phẩm trả khác (từ các đơn trước)</label>
+          <div style={{ position:"relative" }}>
+            <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={13}/></span>
+            <input className="input" style={{ paddingLeft:34 }}
+              placeholder="Tìm tên hoặc mã SP để thêm vào danh sách trả..."
+              value={prodSearch}
+              onChange={e=>{ setProdSearch(e.target.value); setShowDD(true); }}
+              onFocus={()=>setShowDD(true)}
+              onBlur={()=>setTimeout(()=>setShowDD(false), 180)}
+            />
+            {showDD && prodSearch.trim() && (
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:200, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                {prodFiltered.length===0 && <div style={{ padding:12, color:"var(--muted)", fontSize:12, textAlign:"center" }}>Không tìm thấy sản phẩm</div>}
+                {prodFiltered.map(p=>(
+                  <div key={p.id} onMouseDown={()=>addReturnProduct(p)}
+                    style={{ padding:"9px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22", display:"flex", justifyContent:"space-between", alignItems:"center" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{p.name}</div>
+                      <div style={{ fontSize:11, color:"var(--muted)" }}>{p.code} · {p.unit}</div>
+                    </div>
+                    <span className="badge badge-green" style={{ fontSize:10 }}>Kho: {p.stock}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Lý do */}
+        <div>
+          <label className="label">Lý do trả hàng</label>
+          <textarea className="input" rows={2} value={reason} onChange={e=>setReason(e.target.value)}
+            placeholder="VD: Hàng bị hỏng, sai mẫu, KH đổi ý..." style={{ resize:"vertical" }} />
+        </div>
+
+        {selectedItems.length>0 && (
+          <div style={{ background:"var(--sur2)", borderRadius:8, padding:"8px 14px", fontSize:12, color:"var(--muted)" }}>
+            ✓ Sẽ hoàn kho: {selectedItems.map(x=>`${x.productName} (${x.qty})`).join(", ")}
+          </div>
+        )}
+
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-danger" onClick={()=>onConfirm(reason, selectedItems)} disabled={!reason.trim() || selectedItems.length===0}>
+            <Ic n="check" s={15}/>Xác nhận trả hàng
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// PURCHASES
+// ════════════════════════════════════════════════════════
+function PurchasesPage({ ctx }) {
+  const { u, purchases, setPurchases, suppliers, products, setProducts, addLog, setModal, showToast } = ctx;
+  const [search, setSearch] = useState("");
+
+  const filtered = purchases.filter(p=>p.code.includes(search)||p.supplierName.toLowerCase().includes(search.toLowerCase()));
+
+  const markPaid = (id) => {
+    const p=purchases.find(x=>x.id===id);
+    setPurchases(ps=>ps.map(x=>x.id===id?{...x,paid:x.total,status:"paid"}:x));
+    addLog("purchase_paid",`Thanh toán NCC ${p?.supplierName} — phiếu ${p?.code}`);
+    showToast("Đã thanh toán NCC");
+  };
+
+  const del = (id) => {
+    const p=purchases.find(x=>x.id===id);
+    setPurchases(ps=>ps.filter(x=>x.id!==id));
+    addLog("purchase_delete",`Xóa phiếu nhập ${p?.code}`);
+    showToast("Đã xóa");
+  };
+
+  const openNew = () => setModal(
+    <PurchaseForm u={u} suppliers={suppliers} products={products}
+      onAddSupplier={(ns) => { ctx.setSuppliers(ss=>[...ss,ns]); addLog("supplier_create",`Thêm NCC mới: ${ns.name}`); }}
+      onAddProduct={(np) => { setProducts(ps=>[...ps,np]); addLog("product_create",`Thêm SP mới từ phiếu nhập: ${np.name}`); }}
+      onSave={order=>{
+        const code=`NH${String(purchases.length+1).padStart(3,"0")}`;
+        setPurchases(ps=>[{...order,id:uid(),code},...ps]);
+        setProducts(prods=>prods.map(p=>{ const it=order.items.find(i=>i.productId===p.id); return it?{...p,stock:p.stock+it.qty}:p; }));
+        addLog("purchase_create",`Tạo phiếu nhập ${code} — ${order.supplierName} — ${fmt(order.total)}`);
+        setModal(null); showToast("Đã tạo phiếu nhập "+code);
+      }} onClose={()=>setModal(null)} />
+  );
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        <SInput value={search} onChange={setSearch} placeholder="Tìm phiếu nhập..." />
+        {can(u,"purchase_create") && <button className="btn btn-primary" onClick={openNew}><Ic n="plus" s={14}/>Tạo phiếu nhập</button>}
+      </div>
+      <div className="card" style={{ padding:0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Mã phiếu</th><th>Nhà cung cấp</th><th>Ngày</th><th>Tổng tiền</th><th>Đã TT</th><th>Còn nợ</th><th>TT</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map(p=>(
+                <tr key={p.id}>
+                  <td className="mono" style={{ color:"var(--info)", fontWeight:700 }}>{p.code}</td>
+                  <td style={{ fontWeight:600 }}>{p.supplierName}</td>
+                  <td style={{ color:"var(--muted)" }}>{p.date}</td>
+                  <td style={{ fontWeight:700 }}>{fmt(p.total)}</td>
+                  <td style={{ color:"var(--green)" }}>{fmt(p.paid)}</td>
+                  <td style={{ fontWeight:700, color:p.total-p.paid>0?"var(--danger)":"var(--green)" }}>{fmt(p.total-p.paid)}</td>
+                  <td><StatusBadge status={p.status}/></td>
+                  <td>
+                    <div style={{ display:"flex", gap:5 }}>
+                      {p.status!=="paid" && can(u,"purchase_pay") && <button className="btn btn-yellow btn-xs" onClick={()=>markPaid(p.id)}><Ic n="check" s={13}/>Trả</button>}
+                      {can(u,"purchase_delete") && <button className="btn btn-danger btn-xs" onClick={()=>del(p.id)}><Ic n="trash" s={13}/></button>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PurchaseForm({ u, suppliers, products, onSave, onClose, onAddSupplier, onAddProduct }) {
+  const draftKey = `sp3_draft_purchase_${u.id}`;
+  const saved = (() => { try { const s=localStorage.getItem(draftKey); return s?JSON.parse(s):null; } catch { return null; } })();
+
+  const [supId, setSupId] = useState(saved?.supId || suppliers[0]?.id || "");
+  const [items, setItems] = useState(saved?.items || []);
+  const [paid,  setPaid]  = useState(saved?.paid  || 0);
+  const [hasDraft, setHD] = useState(!!saved);
+
+  // New supplier inline
+  const [showNewSup, setShowNewSup] = useState(false);
+  const [nsName,    setNsName]    = useState("");
+  const [nsPhone,   setNsPhone]   = useState("");
+  const [nsContact, setNsContact] = useState("");
+  const [nsEmail,   setNsEmail]   = useState("");
+  const [nsAddr,    setNsAddr]    = useState("");
+  const [supSearch, setSupSearch] = useState("");
+  const [showSupDD, setShowSupDD] = useState(false);
+
+  // Product search (autocomplete thay cho dropdown dài)
+  const [prodSearch, setProdSearch] = useState("");
+  const [showProdDD, setShowProdDD] = useState(false);
+  const [newProdRow, setNewProdRow] = useState(null); // false=not editing, true=opening blank new-product form from search
+
+  const saveDraft = () => { localStorage.setItem(draftKey,JSON.stringify({supId,items,paid})); setHD(true); };
+  const clearDraft = () => { localStorage.removeItem(draftKey); setHD(false); };
+
+  const total = items.reduce((s,i)=>s+i.qty*i.price,0);
+  const sup = suppliers.find(s=>s.id===supId);
+
+  const setItem = (idx,k,v) => setItems(is=>is.map((x,i)=>i===idx?{...x,[k]:v}:x));
+  const removeItem = (idx) => setItems(is=>is.filter((_,i)=>i!==idx));
+
+  const prodFiltered = prodSearch.trim()
+    ? products.filter(p => p.name.toLowerCase().includes(prodSearch.toLowerCase()) || (p.code||"").toLowerCase().includes(prodSearch.toLowerCase())).slice(0,10)
+    : [];
+
+  const addProductRow = (p) => {
+    const existing = items.find(i=>i.productId===p.id);
+    if (existing) {
+      setItems(is=>is.map(x=>x.productId===p.id?{...x,qty:x.qty+1}:x));
+    } else {
+      setItems(is=>[...is, { productId:p.id, productName:p.name, unit:p.unit, qty:1, price:p.costPrice||0 }]);
+    }
+    setProdSearch(""); setShowProdDD(false);
+  };
+
+  const supFiltered = supSearch.trim()
+    ? suppliers.filter(s => s.name.toLowerCase().includes(supSearch.toLowerCase()) || (s.phone||"").includes(supSearch) || (s.code||"").toLowerCase().includes(supSearch.toLowerCase())).slice(0,8)
+    : [];
+
+  const submitNewSupplier = () => {
+    if (!nsName.trim()) return;
+    const ns = { id: uid(), code:`NCC${String(suppliers.length+1).padStart(3,"0")}`, name:nsName.trim(), phone:nsPhone.trim(), contact:nsContact.trim(), email:nsEmail.trim(), address:nsAddr.trim() };
+    onAddSupplier(ns);
+    setSupId(ns.id);
+    setShowNewSup(false); setNsName(""); setNsPhone(""); setNsContact(""); setNsEmail(""); setNsAddr(""); setSupSearch("");
+  };
+
+  const submitNewProduct = (newProd) => {
+    onAddProduct(newProd);
+    setItems(is=>[...is, { productId:newProd.id, productName:newProd.name, unit:newProd.unit, qty:1, price:newProd.costPrice||0 }]);
+    setNewProdRow(null);
+    setProdSearch(""); setShowProdDD(false);
+  };
+
+  const save = () => {
+    if (!supId || items.length===0) return;
+    const enriched = items.map(i=>({ productId:i.productId, productName:i.productName, unit:i.unit, qty:i.qty, price:i.price }));
+    onSave({ supplierId:supId, supplierName:sup?.name, date:todayStr(), total, paid:Math.min(paid,total), status:paid>=total?"paid":paid>0?"partial":"unpaid", items:enriched, createdBy:u.id, createdByName:u.name });
+    clearDraft();
+  };
+
+  return (
+    <div style={{ minWidth:480 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h3 style={{ fontWeight:800 }}>Tạo phiếu nhập hàng</h3>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={saveDraft}><Ic n="save" s={14}/>Lưu nháp</button>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+        </div>
+      </div>
+      {hasDraft && <div style={{ fontSize:12, color:"var(--acc)", background:"#00d4aa11", padding:"6px 12px", borderRadius:8, marginBottom:12 }}>📂 Bản nháp đã lưu — <button onClick={clearDraft} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",fontSize:12,fontFamily:"inherit" }}>Xóa</button></div>}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+        {/* ═══ NHÀ CUNG CẤP ═══ */}
+        <div>
+          <label className="label">Nhà cung cấp</label>
+          {!showNewSup && !sup && (
+            <div style={{ position:"relative" }}>
+              <div style={{ position:"relative" }}>
+                <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
+                <input className="input" style={{ paddingLeft:34 }}
+                  placeholder="Tìm tên, SĐT, mã NCC..."
+                  value={supSearch}
+                  onChange={e=>{ setSupSearch(e.target.value); setShowSupDD(true); }}
+                  onFocus={()=>setShowSupDD(true)}
+                  onBlur={()=>setTimeout(()=>setShowSupDD(false),180)}
+                />
+              </div>
+              {showSupDD && supSearch.trim() && (
+                <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:220, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                  {supFiltered.length===0 && <div style={{ padding:12, textAlign:"center", color:"var(--muted)", fontSize:12 }}>Không tìm thấy NCC</div>}
+                  {supFiltered.map(s=>(
+                    <div key={s.id} onMouseDown={()=>{ setSupId(s.id); setSupSearch(""); setShowSupDD(false); }}
+                      style={{ padding:"9px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{s.name} <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— {s.code}</span></div>
+                      <div style={{ fontSize:11, color:"var(--muted)" }}>📞 {s.phone||"—"} · 📍 {s.address||"—"}</div>
+                    </div>
+                  ))}
+                  <div onMouseDown={()=>{ setShowNewSup(true); setNsName(supSearch); setShowSupDD(false); }}
+                    style={{ padding:"9px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, borderTop:"1px solid var(--bdr)" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <Ic n="plus" s={13}/> Tạo NCC mới: "<b>{supSearch}</b>"
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* NCC đã chọn */}
+          {sup && !showNewSup && (
+            <div style={{ background:"var(--sur2)", borderRadius:8, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:14, color:"var(--info)" }}>{sup.name}</div>
+                <div style={{ fontSize:12, color:"var(--muted)" }}>
+                  📞 {sup.phone||"—"} · 📍 {sup.address||"—"}
+                  {sup.contact && <> · 👤 {sup.contact}</>}
+                </div>
+              </div>
+              <button onMouseDown={()=>{ setSupId(""); setSupSearch(""); }} className="btn btn-ghost btn-xs" style={{ color:"var(--danger)", flexShrink:0 }}>
+                <Ic n="x" s={13}/>Đổi NCC
+              </button>
+            </div>
+          )}
+
+          {showNewSup && (
+            <div style={{ background:"var(--sur2)", borderRadius:10, padding:"12px 14px", border:"1px dashed var(--acc)55" }}>
+              <div style={{ fontSize:11, color:"var(--acc)", fontWeight:700, marginBottom:8 }}>⚡ Nhà cung cấp mới:</div>
+              <div className="form-row" style={{ gap:8, marginBottom:8 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>TÊN NCC *</label>
+                  <input className="input" placeholder="Tên công ty / NCC..." value={nsName} onChange={e=>setNsName(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>SỐ ĐIỆN THOẠI</label>
+                  <input className="input" placeholder="09xx..." value={nsPhone} onChange={e=>setNsPhone(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div className="form-row" style={{ gap:8, marginBottom:8 }}>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>NGƯỜI LIÊN HỆ</label>
+                  <input className="input" placeholder="Tên người liên hệ..." value={nsContact} onChange={e=>setNsContact(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+                <div>
+                  <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>EMAIL</label>
+                  <input className="input" placeholder="email@..." value={nsEmail} onChange={e=>setNsEmail(e.target.value)} style={{ fontSize:12 }}/>
+                </div>
+              </div>
+              <div style={{ marginBottom:10 }}>
+                <label style={{ fontSize:10, color:"var(--muted)", display:"block", marginBottom:2 }}>ĐỊA CHỈ</label>
+                <input className="input" placeholder="Địa chỉ NCC..." value={nsAddr} onChange={e=>setNsAddr(e.target.value)} style={{ fontSize:12 }}/>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn btn-primary btn-sm" onClick={submitNewSupplier} disabled={!nsName.trim()}><Ic n="plus" s={13}/>Thêm & chọn</button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>setShowNewSup(false)}>Hủy</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ═══ HÀNG NHẬP ═══ */}
+        <div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <label className="label" style={{ margin:0 }}>Hàng nhập</label>
+            <span style={{ fontSize:11, color:"var(--muted)" }}>{items.length} mặt hàng</span>
+          </div>
+
+          {/* Ô tìm kiếm sản phẩm */}
+          <div style={{ position:"relative", marginBottom:10 }}>
+            <div style={{ position:"relative" }}>
+              <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={14}/></span>
+              <input className="input" style={{ paddingLeft:34 }}
+                placeholder="Tìm sản phẩm theo tên, mã SP..."
+                value={prodSearch}
+                onChange={e=>{ setProdSearch(e.target.value); setShowProdDD(true); }}
+                onFocus={()=>setShowProdDD(true)}
+                onBlur={()=>setTimeout(()=>setShowProdDD(false),180)}
+              />
+            </div>
+            {showProdDD && prodSearch.trim() && (
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"var(--sur)", border:"1px solid var(--bdr)", borderRadius:10, marginTop:4, maxHeight:260, overflowY:"auto", boxShadow:"0 8px 24px #00000055" }}>
+                {prodFiltered.length===0 && <div style={{ padding:12, textAlign:"center", color:"var(--muted)", fontSize:12 }}>Không tìm thấy sản phẩm</div>}
+                {prodFiltered.map(p=>(
+                  <div key={p.id} onMouseDown={()=>addProductRow(p)}
+                    style={{ padding:"9px 14px", cursor:"pointer", borderBottom:"1px solid var(--bdr)22", display:"flex", justifyContent:"space-between", alignItems:"center" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{p.name}</div>
+                      <div style={{ fontSize:11, color:"var(--muted)" }}>{p.code} · {p.unit} · Vốn: {fmt(p.costPrice)}</div>
+                    </div>
+                    <span className="badge badge-blue" style={{ fontSize:10 }}>Kho: {p.stock}</span>
+                  </div>
+                ))}
+                {/* Tạo hàng mới nếu tìm không thấy */}
+                <div onMouseDown={()=>{ setNewProdRow(true); setShowProdDD(false); }}
+                  style={{ padding:"9px 14px", cursor:"pointer", color:"var(--acc)", fontWeight:600, fontSize:13, borderTop:"1px solid var(--bdr)" }}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--sur2)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <Ic n="plus" s={13}/> Tạo hàng mới: "<b>{prodSearch}</b>"
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Danh sách đã thêm */}
+          {items.length===0 && <div style={{ textAlign:"center", padding:"14px 10px", color:"var(--muted)", fontSize:12 }}>Tìm sản phẩm ở ô trên để thêm vào phiếu nhập</div>}
+          {items.length>0 && (
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 60px 60px 90px 22px", gap:6, padding:"0 4px" }}>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700 }}>SẢN PHẨM</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>ĐVT</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"center" }}>SL</span>
+                <span style={{ fontSize:10, color:"var(--muted)", fontWeight:700, textAlign:"right" }}>GIÁ NHẬP</span>
+                <span></span>
+              </div>
+              {items.map((item,idx)=>(
+                <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 60px 60px 90px 22px", gap:6, alignItems:"center", padding:"6px 4px", background:"var(--sur2)", borderRadius:6 }}>
+                  <div style={{ fontWeight:600, fontSize:12 }}>{item.productName}</div>
+                  <div style={{ fontSize:11, color:"var(--muted)", textAlign:"center" }}>{item.unit}</div>
+                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"4px 6px", fontSize:12, textAlign:"center" }}/>
+                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"4px 6px", fontSize:12, textAlign:"right" }}/>
+                  <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={14}/></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div><label className="label">Đã thanh toán NCC (đ)</label><input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)}/></div>
+        <div style={{ background:"var(--sur2)", borderRadius:10, padding:"14px 16px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", fontWeight:700 }}>
+            <span style={{ color:"var(--muted)" }}>Tổng nhập:</span>
+            <span style={{ color:"var(--info)", fontSize:18 }}>{fmt(total)}</span>
+          </div>
+          {total-paid>0 && <div style={{ color:"var(--danger)", fontSize:13, marginTop:4 }}>⚠ Nợ NCC: {fmt(total-paid)}</div>}
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-primary" onClick={save} disabled={!supId || items.length===0}><Ic n="check" s={15}/>Tạo phiếu</button>
+        </div>
+      </div>
+
+      {/* Mini modal để tạo SP mới ngay tại dòng */}
+      {newProdRow && (
+        <div style={{ position:"fixed", inset:0, background:"#000000aa", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <div style={{ background:"var(--sur)", borderRadius:14, padding:22, width:380, border:"1px solid var(--bdr)" }}>
+            <NewProductInline initialName={prodSearch} onSubmit={submitNewProduct} onCancel={()=>setNewProdRow(false)} productsCount={products.length} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Form nhỏ tạo SP mới ngay trong phiếu nhập
+function NewProductInline({ onSubmit, onCancel, productsCount, initialName }) {
+  const [name, setName] = useState(initialName || "");
+  const [unit, setUnit] = useState("Cái");
+  const [costPrice, setCostPrice] = useState(0);
+
+  const autoCode = () => {
+    const words = name.trim().split(/\s+/);
+    return words.map(w=>w.charAt(0).toUpperCase()).join("").slice(0,4) + String(productsCount+1).padStart(2,"0");
+  };
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onSubmit({ id:uid(), code:autoCode(), name:name.trim(), unit, stock:0, damaged:0, costPrice, retailPrice:0, price:0, category:"Khác", supplierId:"" });
+  };
+
+  return (
+    <div>
+      <div style={{ fontWeight:800, fontSize:15, marginBottom:14 }}>⚡ Tạo hàng mới</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        <div>
+          <label className="label">Tên sản phẩm *</label>
+          <input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Tên hàng..." autoFocus/>
+        </div>
+        <div className="form-row">
+          <div>
+            <label className="label">Đơn vị</label>
+            <select className="input" value={unit} onChange={e=>setUnit(e.target.value)}>
+              {["Cái","Bộ","Thùng","Can","Hộp","Chai","md","m2","kg","tấn","Khác"].map(u=><option key={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Giá vốn (đ)</label>
+            <input className="input" type="number" value={costPrice} onChange={e=>setCostPrice(+e.target.value)} />
+          </div>
+        </div>
+        <div style={{ fontSize:11, color:"var(--muted)" }}>
+          Mã SP sẽ tự tạo. Giá bán buôn/lẻ có thể cập nhật sau ở trang Sản phẩm/Kho.
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:6 }}>
+          <button className="btn btn-ghost" onClick={onCancel}>Hủy</button>
+          <button className="btn btn-primary" onClick={submit} disabled={!name.trim()}><Ic n="check" s={15}/>Thêm & dùng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// PRODUCTS
+// ════════════════════════════════════════════════════════
+function ProductsPage({ ctx }) {
+  const { u, products, setProducts, suppliers, addLog, setModal, showToast } = ctx;
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState([]);
+  const fileRef = useRef();
+
+  const filtered = products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.code.includes(search));
+
+  // Auto-generate code from name
+  const autoCode = (name) => {
+    const words = name.trim().split(/\s+/);
+    const prefix = words.map(w => w.charAt(0).toUpperCase()).join("").slice(0,4);
+    const existing = products.filter(p => p.code.startsWith(prefix)).length;
+    return prefix + String(existing + 1).padStart(2,"0");
+  };
+
+  // Toggle select
+  const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x=>x!==id) : [...s,id]);
+  const toggleAll = () => {
+    if(selected.length === filtered.length) setSelected([]);
+    else setSelected(filtered.map(p=>p.id));
+  };
+
+  // Bulk price edit
+  const openBulkEdit = () => {
+    if(selected.length===0){ showToast("Chọn ít nhất 1 sản phẩm","error"); return; }
+    setModal(
+      <BulkPriceEdit count={selected.length}
+        onApply={(field, amount) => {
+          setProducts(ps=>ps.map(p=>{
+            if(!selected.includes(p.id)) return p;
+            return { ...p, [field]: Math.max(0, (p[field]||0) + amount) };
+          }));
+          addLog("product_update",`Sửa giá hàng loạt ${selected.length} SP: ${field} ${amount>=0?"+":""}${new Intl.NumberFormat("vi-VN").format(amount)}đ`);
+          setModal(null); setSelected([]); showToast(`Đã cập nhật ${selected.length} sản phẩm`);
+        }}
+        onClose={()=>setModal(null)} />
+    );
+  };
+
+  const openForm = (p=null) => setModal(
+    <ProductForm initial={p} suppliers={suppliers} products={products} readOnly={!can(u,"product_edit")} autoCode={autoCode}
+      onSave={data=>{
+        if(p){ setProducts(ps=>ps.map(x=>x.id===data.id?data:x)); addLog("product_update",`Sửa sản phẩm ${data.code} — ${data.name}`); }
+        else { setProducts(ps=>[...ps,{...data,id:uid()}]); addLog("product_create",`Thêm sản phẩm ${data.code} — ${data.name}`); }
+        setModal(null); showToast(p?"Đã cập nhật":"Đã thêm sản phẩm");
+      }} onClose={()=>setModal(null)} />
+  );
+
+  const del = (p) => {
+    if(!can(u,"product_delete")){ showToast("Không có quyền xóa","error"); return; }
+    setProducts(ps=>ps.filter(x=>x.id!==p.id));
+    addLog("product_delete",`Xóa sản phẩm ${p.code} — ${p.name}`);
+    showToast("Đã xóa");
+  };
+
+  const exportXLS = () => {
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(products.map(p=>({ "Mã SP":p.code,"Tên":p.name,"DM":p.category,"ĐVT":p.unit,"Tồn":p.stock,"Hàng hỏng":p.damaged||0,"Giá vốn":p.costPrice,"Giá bán lẻ":p.retailPrice||0,"Giá bán buôn":p.price }))),"Sản phẩm"); XLSX.writeFile(wb,"san-pham.xlsx"); showToast("Đã xuất Excel");
+  };
+
+  const importXLS = (e) => {
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=(ev)=>{
+      const wb=XLSX.read(ev.target.result,{type:"binary"});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const imp=rows.map(r=>{
+        const name = r["Tên"]||"";
+        return { id:uid(), code:r["Mã SP"]||autoCode(name), name, category:r["DM"]||"Khác", unit:r["ĐVT"]||"Cái", stock:+r["Tồn"]||0, damaged:+r["Hàng hỏng"]||0, costPrice:+r["Giá vốn"]||0, retailPrice:+r["Giá bán lẻ"]||0, price:+r["Giá bán buôn"]||0, supplierId:null };
+      });
+      setProducts(ps=>[...ps,...imp]);
+      addLog("product_create",`Nhập ${imp.length} SP từ Excel`);
+      showToast(`Nhập ${imp.length} sản phẩm`);
+    };
+    r.readAsBinaryString(f); e.target.value="";
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        <SInput value={search} onChange={setSearch} placeholder="Tìm sản phẩm..." />
+        <button className="btn btn-ghost btn-sm" onClick={exportXLS}><Ic n="excel" s={14}/>Xuất Excel</button>
+        {can(u,"product_edit") && <><button className="btn btn-ghost btn-sm" onClick={()=>fileRef.current.click()}><Ic n="upload" s={14}/>Nhập Excel</button><input ref={fileRef} type="file" accept=".xlsx" style={{ display:"none" }} onChange={importXLS}/></>}
+        {can(u,"product_create") && <button className="btn btn-primary" onClick={()=>openForm()}><Ic n="plus" s={14}/>Thêm sản phẩm</button>}
+      </div>
+
+      {/* Bulk action bar */}
+      {selected.length>0 && can(u,"product_edit") && (
+        <div style={{ background:"var(--sur2)", border:"1px solid var(--acc)33", borderRadius:10, padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+          <span style={{ fontSize:13, fontWeight:600, color:"var(--acc)" }}>✓ Đã chọn {selected.length} sản phẩm</span>
+          <div style={{ display:"flex", gap:8 }}>
+            <button className="btn btn-primary btn-sm" onClick={openBulkEdit}><Ic n="edit" s={13}/>Sửa giá hàng loạt</button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>setSelected([])}>Bỏ chọn</button>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ padding:0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr>
+              {can(u,"product_edit") && <th style={{ width:30 }}><input type="checkbox" checked={selected.length===filtered.length && filtered.length>0} onChange={toggleAll} style={{ cursor:"pointer" }}/></th>}
+              <th>Mã SP</th><th>Tên sản phẩm</th><th>ĐVT</th><th>Tồn kho</th><th>Hàng hỏng</th><th>Giá vốn</th><th>Giá bán lẻ</th><th>Giá bán buôn</th><th>Lãi</th><th></th>
+            </tr></thead>
+            <tbody>
+              {filtered.map(p=>{
+                const margin = p.price>0?((p.price-p.costPrice)/p.price*100).toFixed(1):0;
+                const isSel = selected.includes(p.id);
+                return (
+                  <tr key={p.id} style={{ background:isSel?"#00d4aa0a":"transparent" }}>
+                    {can(u,"product_edit") && <td><input type="checkbox" checked={isSel} onChange={()=>toggleSel(p.id)} style={{ cursor:"pointer" }}/></td>}
+                    <td className="mono" style={{ color:"var(--acc)" }}>{p.code}</td>
+                    <td style={{ fontWeight:600 }}>{p.name}</td>
+                    <td style={{ color:"var(--muted)" }}>{p.unit}</td>
+                    <td><span className={`badge ${p.stock<30?"badge-red":p.stock<50?"badge-yellow":"badge-green"}`}>{p.stock}</span></td>
+                    <td style={{ color: (p.damaged||0)>0?"var(--danger)":"var(--muted)", fontWeight:(p.damaged||0)>0?700:400 }}>{p.damaged||0}</td>
+                    <td style={{ color:"var(--muted)" }}>{fmt(p.costPrice)}</td>
+                    <td style={{ color:"var(--info)" }}>{fmt(p.retailPrice||0)}</td>
+                    <td style={{ fontWeight:700, color:"var(--acc)" }}>{fmt(p.price)}</td>
+                    <td style={{ color:"var(--green)", fontWeight:700 }}>{margin}%</td>
+                    <td>
+                      <div style={{ display:"flex", gap:5 }}>
+                        <button className="btn btn-ghost btn-xs" onClick={()=>openForm(p)}><Ic n={can(u,"product_edit")?"edit":"eye"} s={13}/></button>
+                        {can(u,"product_delete") && <button className="btn btn-danger btn-xs" onClick={()=>del(p)}><Ic n="trash" s={13}/></button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Bulk price edit modal
+function BulkPriceEdit({ count, onApply, onClose }) {
+  const [field, setField] = useState("price");
+  const [amount, setAmount] = useState(0);
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h3 style={{ fontWeight:800 }}>Sửa giá hàng loạt ({count} SP)</h3>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div>
+          <label className="label">Chọn loại giá cần sửa</label>
+          <select className="input" value={field} onChange={e=>setField(e.target.value)}>
+            <option value="price">Giá bán buôn</option>
+            <option value="retailPrice">Giá bán lẻ</option>
+            <option value="costPrice">Giá vốn</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Tăng / Giảm bao nhiêu (đ)</label>
+          <input className="input" type="number" value={amount} onChange={e=>setAmount(+e.target.value)} style={{ fontSize:16, fontWeight:700 }} />
+          <div style={{ fontSize:12, color:"var(--muted)", marginTop:6 }}>
+            Nhập số dương (+10000) để tăng, số âm (-5000) để giảm
+          </div>
+        </div>
+        <div style={{ background:"var(--sur2)", borderRadius:8, padding:"10px 14px", fontSize:13 }}>
+          <b>Ví dụ:</b> {count} SP được chọn, {field==="price"?"giá buôn":field==="retailPrice"?"giá lẻ":"giá vốn"} sẽ {amount>=0?"tăng":"giảm"} <b style={{ color:amount>=0?"var(--green)":"var(--danger)" }}>{fmt(Math.abs(amount))}</b> mỗi SP
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-primary" onClick={()=>onApply(field,amount)} disabled={amount===0}><Ic n="check" s={15}/>Áp dụng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductForm({ initial, onSave, onClose, suppliers, products, readOnly, autoCode }) {
+  const [f, setF] = useState(initial||{ code:"", name:"", unit:"Cái", stock:0, damaged:0, price:0, retailPrice:0, costPrice:0, category:"Nội thất", supplierId:"" });
+  const s = (k,v) => {
+    setF(x => {
+      const next = {...x,[k]:v};
+      // Auto-generate code when name changes and code is empty or auto-generated
+      if(k==="name" && !initial && autoCode) {
+        next.code = autoCode(v);
+      }
+      return next;
+    });
+  };
+  const margin = f.price>0?((f.price-f.costPrice)/f.price*100).toFixed(1):0;
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h3 style={{ fontWeight:800 }}>{readOnly?"Xem sản phẩm":initial?"Sửa sản phẩm":"Thêm sản phẩm"}</h3>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div><label className="label">Tên sản phẩm</label><input className="input" value={f.name} onChange={e=>s("name",e.target.value)} disabled={readOnly} placeholder="Gõ tên → mã SP tự tạo"/></div>
+        <div className="form-row">
+          <div><label className="label">Mã SP (tự động)</label><input className="input mono" value={f.code} onChange={e=>s("code",e.target.value)} disabled={readOnly} style={{ color:"var(--acc)" }}/></div>
+          <div><label className="label">Danh mục</label>
+            <select className="input" value={f.category} onChange={e=>s("category",e.target.value)} disabled={readOnly}>
+              {["Nội thất","Nước uống","Nước ngọt","Thực phẩm","Gia vị","Đồ khô","Khác"].map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div><label className="label">Đơn vị tính</label>
+            <select className="input" value={f.unit} onChange={e=>s("unit",e.target.value)} disabled={readOnly}>
+              {["Cái","Bộ","Thùng","Can","Hộp","Chai","md","m2","kg","tấn","Khác"].map(u=><option key={u}>{u}</option>)}
+            </select>
+          </div>
+          <div><label className="label">NCC</label>
+            <select className="input" value={f.supplierId} onChange={e=>s("supplierId",e.target.value)} disabled={readOnly}>
+              <option value="">— Không —</option>
+              {suppliers.map(sv=><option key={sv.id} value={sv.id}>{sv.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div><label className="label">Tồn kho</label><input className="input" type="number" value={f.stock} onChange={e=>s("stock",+e.target.value)} disabled={readOnly}/></div>
+          <div><label className="label">Hàng hỏng</label><input className="input" type="number" value={f.damaged||0} onChange={e=>s("damaged",+e.target.value)} disabled={readOnly}/></div>
+        </div>
+        <div style={{ background:"var(--sur2)", borderRadius:10, padding:14, border:"1px solid var(--bdr)" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", marginBottom:10 }}>Bảng giá</div>
+          <div className="form-row" style={{ marginBottom:10 }}>
+            <div><label className="label">Giá vốn (đ)</label><input className="input" type="number" value={f.costPrice} onChange={e=>s("costPrice",+e.target.value)} disabled={readOnly}/></div>
+            <div><label className="label">Giá bán lẻ (đ)</label><input className="input" type="number" value={f.retailPrice||0} onChange={e=>s("retailPrice",+e.target.value)} disabled={readOnly}/></div>
+          </div>
+          <div><label className="label">Giá bán buôn (đ)</label><input className="input" type="number" value={f.price} onChange={e=>s("price",+e.target.value)} disabled={readOnly} style={{ fontWeight:700, fontSize:15 }}/></div>
+        </div>
+        {f.price>0 && <div style={{ background:"#00d4aa0f", border:"1px solid #00d4aa22", borderRadius:8, padding:"10px 14px", fontSize:13, color:"var(--acc)" }}>
+          ✓ Lợi nhuận buôn: {fmt(f.price-f.costPrice)} / {f.unit} — Tỷ suất: {margin}%
+          {(f.retailPrice||0)>0 && <span style={{ marginLeft:10 }}>| Lãi lẻ: {fmt((f.retailPrice||0)-f.costPrice)}</span>}
+        </div>}
+        {!readOnly && <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-primary" onClick={()=>onSave(f)}><Ic n="check" s={15}/>Lưu</button>
+        </div>}
+        {readOnly && <button className="btn btn-ghost" onClick={onClose} style={{ width:"100%", justifyContent:"center" }}>Đóng</button>}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// CUSTOMERS
+// ════════════════════════════════════════════════════════
+function CustomersPage({ ctx, setPage, setSelectedCustomerId }) {
+  const { u, customers, setCusts, orders, addLog, setModal, showToast } = ctx;
+  const [search, setSearch] = useState("");
+  const fileRef = useRef();
+
+  const filtered = customers.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.phone||"").includes(search) ||
+    (c.code||"").toLowerCase().includes(search.toLowerCase())
+  );
+  const getDebt = (id) => orders.filter(o=>o.customerId===id).reduce((s,o)=>s+(o.isPaid?0:o.total),0);
+  const openDetail = (id) => { setSelectedCustomerId(id); setPage("customer_detail"); };
+
+  // Auto-generate mã KH
+  const nextCode = () => `KH${String(customers.length+1).padStart(3,"0")}`;
+
+  // ── OPEN FORM ─────────────────────────────────────────
+  const openForm = (c=null) => setModal(<CustomerForm
+    initial={c} nextCode={nextCode()} readOnly={c&&!can(u,"customer_edit")}
+    onSave={data=>{
+      if(c){ setCusts(cs=>cs.map(x=>x.id===c.id?{...x,...data}:x)); addLog("customer_update",`Sửa KH ${data.name}`); }
+      else { setCusts(cs=>[...cs,{...data,id:uid(),totalBought:0}]); addLog("customer_create",`Thêm KH ${data.name}`); }
+      setModal(null); showToast(c?"Đã cập nhật":"Đã thêm KH");
+    }} onClose={()=>setModal(null)} />
+  );
+
+  // ── XUẤT EXCEL ────────────────────────────────────────
+  // Mẫu: Mã KH | Tên KH | Địa chỉ KH | Số ĐT
+  const exportXLS = () => {
+    const rows = customers.map(c=>({
+      "Mã KH":    c.code  || "",
+      "Tên KH":   c.name  || "",
+      "Địa chỉ KH": c.address || "",
+      "Số ĐT":    c.phone || "",
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Khách hàng");
+    XLSX.writeFile(wb, "danh-sach-khach-hang.xlsx");
+    showToast("Đã xuất danh sách khách hàng");
+  };
+
+  // ── NHẬP EXCEL ────────────────────────────────────────
+  const importXLS = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const wb = XLSX.read(ev.target.result, { type:"binary" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      let count = 0;
+      const newCusts = [];
+      rows.forEach(r => {
+        const name = (r["Tên KH"]||r["ten_kh"]||r["Tên"]||"").trim();
+        if(!name) return;
+        // Tự tạo mã KH nếu không có
+        const code = (r["Mã KH"]||r["ma_kh"]||"").trim() ||
+          `KH${String(customers.length + newCusts.length + 1).padStart(3,"0")}`;
+        const address = (r["Địa chỉ KH"]||r["dia_chi"]||r["Địa chỉ"]||"").trim();
+        const phone   = String(r["Số ĐT"]||r["so_dt"]||r["ĐT"]||"").trim();
+        newCusts.push({ id:uid(), code, name, address, phone, totalBought:0 });
+        count++;
+      });
+      setCusts(cs=>[...cs, ...newCusts]);
+      addLog("customer_create", `Nhập ${count} khách hàng từ Excel`);
+      showToast(`Đã nhập ${count} khách hàng`);
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = "";
+  };
+
+  // ── DOWNLOAD TEMPLATE ─────────────────────────────────
+  const downloadTemplate = () => {
+    const sample = [
+      { "Mã KH":"KH001", "Tên KH":"Tạp hóa Bà Lan", "Địa chỉ KH":"123, Lê Lợi, Phường 1, Hà Nội", "Số ĐT":"0901234567" },
+      { "Mã KH":"KH002", "Tên KH":"Siêu thị Mini Hùng", "Địa chỉ KH":"456, Nguyễn Trãi, Phường 5, TP.HCM", "Số ĐT":"0912345678" },
+      { "Mã KH":"",      "Tên KH":"(Để trống mã KH → tự động tạo)", "Địa chỉ KH":"số nhà, đường, phường, tỉnh/TP", "Số ĐT":"" },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sample), "Mẫu nhập KH");
+    XLSX.writeFile(wb, "mau-nhap-khach-hang.xlsx");
+    showToast("Đã tải file mẫu");
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* Toolbar */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <SInput value={search} onChange={setSearch} placeholder="Tìm tên, SĐT, mã KH..." />
+        <button className="btn btn-ghost btn-sm" onClick={exportXLS}><Ic n="excel" s={14}/>Xuất Excel</button>
+        {can(u,"customer_create") && <>
+          <button className="btn btn-ghost btn-sm" onClick={()=>fileRef.current.click()}><Ic n="upload" s={14}/>Nhập Excel</button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={importXLS}/>
+          <button className="btn btn-ghost btn-sm" onClick={downloadTemplate} title="Tải file Excel mẫu"><Ic n="download" s={14}/>File mẫu</button>
+          <button className="btn btn-primary" onClick={()=>openForm()}><Ic n="plus" s={14}/>Thêm KH</button>
+        </>}
+      </div>
+
+      {/* Hint về cấu trúc địa chỉ */}
+      <div style={{ fontSize:12, color:"var(--muted)", background:"var(--sur2)", padding:"8px 14px", borderRadius:8 }}>
+        📍 Cấu trúc địa chỉ: <b style={{ color:"var(--text)" }}>Số nhà, Đường, Phường, Tỉnh/TP</b>
+        &nbsp;— VD: <span style={{ color:"var(--acc)" }}>16065, Đê La Thành, Phường Láng, Hà Nội</span>
+      </div>
+
+      <div className="card" style={{ padding:0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Mã KH</th>
+                <th>Tên KH</th>
+                <th>Số ĐT</th>
+                <th className="hide-mobile">Địa chỉ KH</th>
+                <th>Tổng mua</th>
+                <th>Công nợ</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length===0 && <tr><td colSpan={7} style={{ textAlign:"center", color:"var(--muted)", padding:30 }}>Không có khách hàng</td></tr>}
+              {filtered.map(c=>{
+                const debt = getDebt(c.id);
+                return (
+                  <tr key={c.id}>
+                    <td><a className="link" onClick={()=>openDetail(c.id)}>{c.code}</a></td>
+                    <td><a className="link-name" onClick={()=>openDetail(c.id)}>{c.name}</a></td>
+                    <td style={{ color:"var(--muted)", fontSize:13 }}>{c.phone||"—"}</td>
+                    <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{c.address||"—"}</td>
+                    <td style={{ fontWeight:700 }}>{fmt(c.totalBought)}</td>
+                    <td style={{ fontWeight:700, color:debt>0?"var(--danger)":"var(--green)" }}>{fmt(debt)}</td>
+                    <td>
+                      <div style={{ display:"flex", gap:5 }}>
+                        <button className="btn btn-ghost btn-xs" onClick={()=>openForm(c)}>
+                          <Ic n={can(u,"customer_edit")?"edit":"eye"} s={13}/>
+                        </button>
+                        {can(u,"customer_delete") && (
+                          <button className="btn btn-danger btn-xs" onClick={()=>{
+                            setCusts(cs=>cs.filter(x=>x.id!==c.id));
+                            addLog("customer_delete",`Xóa KH ${c.name}`);
+                            showToast("Đã xóa");
+                          }}><Ic n="trash" s={13}/></button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={{ fontSize:12, color:"var(--muted)", textAlign:"right" }}>
+        Tổng: <b>{customers.length}</b> khách hàng · Hiện: <b>{filtered.length}</b>
+      </div>
+    </div>
+  );
+}
+
+// Form thêm/sửa khách hàng với địa chỉ cấu trúc
+function CustomerForm({ initial, nextCode, readOnly, onSave, onClose }) {
+  const parseAddr = (addr) => {
+    const parts = (addr||"").split(",").map(s=>s.trim());
+    return { soNha: parts[0]||"", duong: parts[1]||"", phuong: parts[2]||"", tp: parts[3]||"" };
+  };
+  const parsed = parseAddr(initial?.address);
+
+  const [code,   setCode]   = useState(initial?.code   || nextCode);
+  const [name,   setName]   = useState(initial?.name   || "");
+  const [phone,  setPhone]  = useState(initial?.phone  || "");
+  const [soNha,  setSoNha]  = useState(parsed.soNha);
+  const [duong,  setDuong]  = useState(parsed.duong);
+  const [phuong, setPhuong] = useState(parsed.phuong);
+  const [tp,     setTp]     = useState(parsed.tp);
+
+  const buildAddress = () => [soNha, duong, phuong, tp].filter(Boolean).join(", ");
+
+  const save = () => {
+    if(!name.trim()){ return; }
+    onSave({ code, name: name.trim(), phone: phone.trim(), address: buildAddress() });
+  };
+
+  return (
+    <div style={{ minWidth:440 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+        <h3 style={{ fontWeight:800 }}>{readOnly?"Xem KH":initial?"Sửa khách hàng":"Thêm khách hàng"}</h3>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <div className="form-row">
+          <div>
+            <label className="label">Mã KH (tự động)</label>
+            <input className="input mono" value={code} onChange={e=>setCode(e.target.value)} disabled={readOnly} style={{ color:"var(--acc)" }}/>
+          </div>
+          <div>
+            <label className="label">Số điện thoại</label>
+            <input className="input" value={phone} onChange={e=>setPhone(e.target.value)} disabled={readOnly} placeholder="09xx..."/>
+          </div>
+        </div>
+        <div>
+          <label className="label">Tên khách hàng *</label>
+          <input className="input" value={name} onChange={e=>setName(e.target.value)} disabled={readOnly} placeholder="Tên KH..."/>
+        </div>
+
+        {/* Địa chỉ cấu trúc */}
+        <div style={{ background:"var(--sur2)", borderRadius:10, padding:"12px 14px", border:"1px solid var(--bdr)" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", marginBottom:10 }}>
+            Địa chỉ <span style={{ color:"var(--muted)", fontWeight:400, fontSize:10 }}>— mỗi mục cách nhau bằng dấu (,)</span>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"80px 1fr", gap:8, marginBottom:8 }}>
+            <div>
+              <label className="label" style={{ fontSize:10 }}>SỐ NHÀ</label>
+              <input className="input" value={soNha} onChange={e=>setSoNha(e.target.value)} disabled={readOnly} placeholder="16065" style={{ fontSize:12 }}/>
+            </div>
+            <div>
+              <label className="label" style={{ fontSize:10 }}>ĐƯỜNG</label>
+              <input className="input" value={duong} onChange={e=>setDuong(e.target.value)} disabled={readOnly} placeholder="Đê La Thành" style={{ fontSize:12 }}/>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            <div>
+              <label className="label" style={{ fontSize:10 }}>PHƯỜNG / XÃ</label>
+              <input className="input" value={phuong} onChange={e=>setPhuong(e.target.value)} disabled={readOnly} placeholder="Phường Láng" style={{ fontSize:12 }}/>
+            </div>
+            <div>
+              <label className="label" style={{ fontSize:10 }}>TỈNH / THÀNH PHỐ</label>
+              <input className="input" value={tp} onChange={e=>setTp(e.target.value)} disabled={readOnly} placeholder="Hà Nội" style={{ fontSize:12 }}/>
+            </div>
+          </div>
+          {/* Preview địa chỉ */}
+          {buildAddress() && (
+            <div style={{ marginTop:8, fontSize:11, color:"var(--acc)", background:"#00d4aa0a", padding:"5px 10px", borderRadius:6 }}>
+              📍 {buildAddress()}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          {!readOnly && <button className="btn btn-primary" onClick={save} disabled={!name.trim()}>
+            <Ic n="check" s={15}/>Lưu
+          </button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// SUPPLIERS
+// ════════════════════════════════════════════════════════
+function SuppliersPage({ ctx }) {
+  const { u, suppliers, setSuppliers, purchases, addLog, setModal, showToast } = ctx;
+  const [search, setSearch] = useState("");
+
+  const filtered = suppliers.filter(s=>s.name.toLowerCase().includes(search.toLowerCase())||s.code?.includes(search));
+  const getDebt = (id) => purchases.filter(p=>p.supplierId===id).reduce((s,p)=>s+(p.total-p.paid),0);
+
+  const openForm = (s=null) => setModal(
+    <SimpleForm title={s?"Sửa NCC":"Thêm NCC"} readOnly={s&&!can(u,"supplier_edit")}
+      fields={[
+        { key:"code",    label:"Mã NCC",    value:s?.code    || `NCC${String(suppliers.length+1).padStart(3,"0")}` },
+        { key:"name",    label:"Tên NCC",   value:s?.name    || "" },
+        { key:"phone",   label:"ĐT",        value:s?.phone   || "" },
+        { key:"contact", label:"Liên hệ",   value:s?.contact || "" },
+        { key:"email",   label:"Email",     value:s?.email   || "" },
+        { key:"address", label:"Địa chỉ",   value:s?.address || "" },
+      ]}
+      onSave={data=>{
+        if(s){ setSuppliers(ss=>ss.map(x=>x.id===s.id?{...x,...data}:x)); addLog("supplier_update",`Sửa NCC ${data.name}`); }
+        else { setSuppliers(ss=>[...ss,{...data,id:uid()}]); addLog("supplier_create",`Thêm NCC ${data.name}`); }
+        setModal(null); showToast(s?"Đã cập nhật":"Đã thêm NCC");
+      }} onClose={()=>setModal(null)} />
+  );
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+        <SInput value={search} onChange={setSearch} placeholder="Tìm nhà cung cấp..." />
+        {can(u,"supplier_edit") && <button className="btn btn-primary" onClick={()=>openForm()}><Ic n="plus" s={14}/>Thêm NCC</button>}
+      </div>
+      {!can(u,"supplier_edit") && <div style={{ fontSize:12, color:"var(--muted)", background:"var(--sur2)", padding:"6px 12px", borderRadius:8 }}>👁 Bạn chỉ có thể xem thông tin nhà cung cấp</div>}
+      <div className="card" style={{ padding:0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Mã NCC</th><th>Tên NCC</th><th>ĐT</th><th>Liên hệ</th><th className="hide-mobile">Email</th><th>Nợ phải trả</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map(s=>{
+                const debt=getDebt(s.id);
+                return (
+                  <tr key={s.id}>
+                    <td className="mono" style={{ color:"var(--info)" }}>{s.code}</td>
+                    <td style={{ fontWeight:700 }}>{s.name}</td>
+                    <td style={{ color:"var(--muted)" }}>{s.phone}</td>
+                    <td>{s.contact}</td>
+                    <td className="hide-mobile" style={{ color:"var(--muted)", fontSize:12 }}>{s.email}</td>
+                    <td style={{ fontWeight:700, color:debt>0?"var(--danger)":"var(--green)" }}>{fmt(debt)}</td>
+                    <td>
+                      <div style={{ display:"flex", gap:5 }}>
+                        <button className="btn btn-ghost btn-xs" onClick={()=>openForm(s)}><Ic n={can(u,"supplier_edit")?"edit":"eye"} s={13}/></button>
+                        {can(u,"supplier_delete") && <button className="btn btn-danger btn-xs" onClick={()=>{ setSuppliers(ss=>ss.filter(x=>x.id!==s.id)); addLog("supplier_delete",`Xóa NCC ${s.name}`); showToast("Đã xóa"); }}><Ic n="trash" s={13}/></button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// REPORT
+// ════════════════════════════════════════════════════════
+function ReportPage({ ctx }) {
+  const { u, orders, products, customers, purchases, addLog } = ctx;
+
+  useEffect(() => {
+    addLog("report_view", `Xem báo cáo doanh thu tổng hợp`);
+  }, []);
+
+  const revenue   = orders.reduce((s,o)=>s+o.total,0);
+  const collected = orders.reduce((s,o)=>s+o.paid,0);
+  const orderDebt = revenue-collected;
+  const costGoods = purchases.reduce((s,p)=>s+p.total,0);
+  const pDebt     = purchases.reduce((s,p)=>s+(p.total-p.paid),0);
+  const profit    = collected-costGoods;
+
+  const bars = [
+    { label:"Tổng DT",   val:revenue,   color:"#60a5fa" },
+    { label:"Đã thu",    val:collected, color:"#00d4aa" },
+    { label:"Công nợ KH",val:orderDebt, color:"#f59e0b" },
+    { label:"Tổng nhập", val:costGoods, color:"#a78bfa" },
+    { label:"Lợi nhuận", val:profit,    color:profit>=0?"#10b981":"#f43f5e" },
+  ];
+  const maxBar = Math.max(...bars.map(b=>Math.abs(b.val)),1);
+
+  const topProducts = [...products].sort((a,b)=>(b.price-b.costPrice)-(a.price-a.costPrice)).slice(0,5);
+  const debtCusts = customers.map(c=>({ ...c, debt:orders.filter(o=>o.customerId===c.id).reduce((s,o)=>s+(o.total-o.paid),0) })).filter(c=>c.debt>0).sort((a,b)=>b.debt-a.debt);
+
+  const exportXLS = () => {
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(bars.map(b=>({ "Chỉ tiêu":b.label,"Giá trị":b.val }))),"Báo cáo");
+    XLSX.writeFile(wb,"bao-cao.xlsx");
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      <div style={{ display:"flex", justifyContent:"flex-end" }}>
+        <button className="btn btn-ghost btn-sm" onClick={exportXLS}><Ic n="excel" s={14}/>Xuất Excel</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:12 }}>
+        {[
+          { label:"Tổng doanh thu", val:fmt(revenue), c:"var(--info)" },
+          { label:"Đã thu về",      val:fmt(collected), c:"var(--acc)" },
+          { label:"Công nợ KH",     val:fmt(orderDebt), c:"var(--yellow)" },
+          { label:"Nợ NCC",         val:fmt(pDebt),     c:"var(--danger)" },
+          { label:"Lợi nhuận gộp",  val:fmt(profit),    c:profit>=0?"var(--green)":"var(--danger)" },
+        ].map((s,i)=>(
+          <div key={i} className="card" style={{ borderTop:`3px solid ${s.c}` }}>
+            <div style={{ fontSize:11, color:"var(--muted)", fontWeight:600, marginBottom:6 }}>{s.label}</div>
+            <div style={{ fontSize:17, fontWeight:800, color:s.c }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        <div className="card">
+          <div className="section-title">📊 Biểu đồ</div>
+          {bars.map((b,i)=>(
+            <div key={i} style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
+                <span style={{ color:"var(--muted)", fontWeight:600 }}>{b.label}</span>
+                <span style={{ fontWeight:700, color:b.color }}>{fmt(b.val)}</span>
+              </div>
+              <div style={{ height:8, background:"var(--sur2)", borderRadius:8, overflow:"hidden" }}>
+                <div style={{ width:`${(Math.abs(b.val)/maxBar*100).toFixed(1)}%`, height:"100%", background:b.color, borderRadius:8, transition:"width .5s" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <div className="section-title">🏆 Sản phẩm lãi cao</div>
+          {topProducts.map((p,i)=>(
+            <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", background:"var(--sur2)", borderRadius:8, marginBottom:6 }}>
+              <div style={{ width:26, height:26, borderRadius:6, background:["#FFD700","#C0C0C0","#CD7F32","var(--bdr)","var(--bdr)"][i], display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, flexShrink:0 }}>{i+1}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:600, fontSize:12 }}>{p.name}</div>
+                <div style={{ fontSize:11, color:"var(--muted)" }}>Tồn: {p.stock} {p.unit}</div>
+              </div>
+              <div style={{ color:"var(--green)", fontWeight:700, fontSize:13 }}>{fmt(p.price-p.costPrice)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {debtCusts.length>0 && (
+        <div className="card">
+          <div className="section-title">⚠ Khách hàng còn nợ</div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Khách hàng</th><th>ĐT</th><th>Công nợ</th></tr></thead>
+              <tbody>
+                {debtCusts.map(c=>(
+                  <tr key={c.id}>
+                    <td style={{ fontWeight:700 }}>{c.name}</td>
+                    <td style={{ color:"var(--muted)" }}>{c.phone}</td>
+                    <td style={{ fontWeight:800, color:"var(--danger)", fontSize:15 }}>{fmt(c.debt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// AUDIT LOG
+// ════════════════════════════════════════════════════════
+const ACTION_COLOR = {
+  login:"var(--info)", logout:"var(--muted)", order_create:"var(--acc)", order_delete:"var(--danger)", order_paid:"var(--green)", order_collect:"var(--green)",
+  purchase_create:"var(--yellow)", purchase_delete:"var(--danger)", purchase_paid:"var(--green)",
+  product_create:"var(--acc)", product_update:"var(--yellow)", product_delete:"var(--danger)",
+  customer_create:"var(--acc)", customer_update:"var(--yellow)", customer_delete:"var(--danger)",
+  supplier_create:"var(--acc)", supplier_update:"var(--yellow)", supplier_delete:"var(--danger)",
+  user_create:"var(--info)", user_update:"var(--yellow)", user_toggle:"var(--yellow)",
+  report_view:"var(--muted)",
+};
+
+function AuditPage({ ctx }) {
+  const { u, auditLog, setAuditLog } = ctx;
+  const [search, setSearch] = useState("");
+  const [filterUser, setFilterUser] = useState("all");
+
+  // Phạm vi xem: owner=tất cả, manager=nhóm+mình, sale=chỉ mình
+  const visible = auditLog.filter(entry => {
+    if(can(u,"audit_view_all")) return true;
+    if(can(u,"audit_view_team") && !can(u,"audit_view_all")) return entry.userId===u.id; // manager sees own for now
+    return entry.userId===u.id;
+  });
+
+  const filtered = visible.filter(entry=>{
+    const ms = entry.detail.toLowerCase().includes(search.toLowerCase()) || entry.userName.toLowerCase().includes(search.toLowerCase());
+    const mu = filterUser==="all" || entry.userId===filterUser;
+    return ms && mu;
+  });
+
+  const uniqueUsers = [...new Set(visible.map(e=>e.userId))].map(id=>{ const e=visible.find(x=>x.userId===id); return{ id, name:e?.userName }; });
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        <SInput value={search} onChange={setSearch} placeholder="Tìm thao tác..." />
+        {can(u,"audit_view_all") && (
+          <select className="input" style={{ width:180 }} value={filterUser} onChange={e=>setFilterUser(e.target.value)}>
+            <option value="all">Tất cả nhân viên</option>
+            {uniqueUsers.map(uu=><option key={uu.id} value={uu.id}>{uu.name}</option>)}
+          </select>
+        )}
+        {can(u,"audit_view_all") && <button className="btn btn-ghost btn-sm" onClick={()=>setAuditLog([])} style={{ color:"var(--danger)", borderColor:"var(--danger)" }}><Ic n="trash" s={14}/>Xóa log</button>}
+      </div>
+
+      {!can(u,"audit_view_all") && (
+        <div style={{ fontSize:12, color:"var(--muted)", background:"var(--sur2)", padding:"6px 12px", borderRadius:8 }}>
+          {can(u,"audit_view_team")?"⚡ Bạn đang xem lịch sử nhóm của mình":"⚡ Bạn chỉ xem được lịch sử thao tác của chính mình"}
+        </div>
+      )}
+
+      <div className="card" style={{ padding:0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Thời gian</th><th>Nhân viên</th><th>Vai trò</th><th>Thao tác</th><th>Chi tiết</th></tr></thead>
+            <tbody>
+              {filtered.map(entry=>(
+                <tr key={entry.id}>
+                  <td className="mono" style={{ color:"var(--muted)", fontSize:11 }}>{entry.time}</td>
+                  <td style={{ fontWeight:600 }}>{entry.userName}</td>
+                  <td><RoleBadge role={entry.role}/></td>
+                  <td>
+                    <span style={{ fontSize:12, fontWeight:700, color:ACTION_COLOR[entry.action]||"var(--text)" }}>
+                      {entry.action}
+                    </span>
+                  </td>
+                  <td style={{ color:"var(--muted)", fontSize:12 }}>{entry.detail}</td>
+                </tr>
+              ))}
+              {filtered.length===0 && (
+                <tr><td colSpan={5} style={{ textAlign:"center", color:"var(--muted)", padding:30 }}>Không có dữ liệu</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// USER MANAGEMENT (chỉ owner)
+// ════════════════════════════════════════════════════════
+function UserMgmtPage({ ctx }) {
+  const { u, users, setUsers, addLog, setModal, showToast } = ctx;
+
+  if(!can(u,"user_manage")) return <Gate perm="user_manage" user={u} />;
+
+  const toggleActive = (id) => {
+    const target = users.find(x=>x.id===id);
+    if(target?.role==="owner" && users.filter(x=>x.role==="owner"&&x.active).length<=1) { showToast("Không thể khoá tài khoản Chủ duy nhất","error"); return; }
+    setUsers(us=>us.map(x=>x.id===id?{...x,active:!x.active}:x));
+    addLog("user_toggle", `${target?.active?"Khóa":"Mở"} tài khoản ${target?.name} (${target?.username})`);
+    showToast(target?.active?"Đã khóa tài khoản":"Đã mở tài khoản");
+  };
+
+  const openForm = (usr=null) => setModal(
+    <UserForm initial={usr} users={users}
+      onSave={data=>{
+        if(usr){ setUsers(us=>us.map(x=>x.id===usr.id?{...x,...data}:x)); addLog("user_update",`Sửa TK ${data.username} — ${ROLE_META[data.role]?.label}`); }
+        else { setUsers(us=>[...us,{...data,id:uid(),active:true,createdAt:nowStr(),createdBy:u.id}]); addLog("user_create",`Tạo TK ${data.username} — ${ROLE_META[data.role]?.label}`); }
+        setModal(null); showToast(usr?"Đã cập nhật TK":"Đã tạo tài khoản mới");
+      }} onClose={()=>setModal(null)} />
+  );
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex", justifyContent:"flex-end" }}>
+        <button className="btn btn-primary" onClick={()=>openForm()}><Ic n="plus" s={14}/>Tạo tài khoản</button>
+      </div>
+
+      {/* Perm summary */}
+      <div className="card" style={{ borderLeft:"3px solid var(--acc)" }}>
+        <div style={{ fontWeight:700, marginBottom:10, fontSize:14 }}>🔐 Tóm tắt phân quyền</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:8 }}>
+          {[
+            { role:"owner",   items:["Toàn quyền tất cả","Tạo/khoá tài khoản","Xem mọi báo cáo & audit log"] },
+            { role:"manager", items:["Đơn hàng: tạo, sửa, xóa","Nhập hàng & kho","Báo cáo doanh thu","Không quản lý TK"] },
+            { role:"sale",    items:["Tạo đơn & thu tiền của mình","Xem tồn kho (chỉ xem)","Thêm khách hàng","Không xem báo cáo tổng"] },
+          ].map(r=>(
+            <div key={r.role} style={{ background:"var(--sur2)", borderRadius:8, padding:"10px 14px" }}>
+              <div style={{ marginBottom:8 }}><RoleBadge role={r.role}/></div>
+              {r.items.map((it,i)=><div key={i} style={{ fontSize:12, color:"var(--muted)", marginBottom:3 }}>• {it}</div>)}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card" style={{ padding:0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th></th></tr></thead>
+            <tbody>
+              {users.map(usr=>(
+                <tr key={usr.id}>
+                  <td className="mono" style={{ fontWeight:700 }}>{usr.username}</td>
+                  <td style={{ fontWeight:600 }}>{usr.name}</td>
+                  <td><RoleBadge role={usr.role}/></td>
+                  <td>
+                    <span className={`badge ${usr.active?"badge-green":"badge-red"}`}>
+                      {usr.active?"● Hoạt động":"○ Đã khóa"}
+                    </span>
+                  </td>
+                  <td style={{ color:"var(--muted)", fontSize:12 }}>{usr.createdAt}</td>
+                  <td>
+                    <div style={{ display:"flex", gap:5 }}>
+                      <button className="btn btn-ghost btn-xs" onClick={()=>openForm(usr)}><Ic n="edit" s={13}/></button>
+                      {usr.id!==u.id && (
+                        <button className={`btn btn-xs ${usr.active?"btn-danger":"btn-yellow"}`} onClick={()=>toggleActive(usr.id)}>
+                          <Ic n={usr.active?"lock":"unlock"} s={13}/>{usr.active?"Khóa":"Mở"}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserForm({ initial, users, onSave, onClose }) {
+  const [f, setF] = useState({
+    username: initial?.username || "",
+    password: initial?.password || "",
+    name:     initial?.name     || "",
+    role:     initial?.role     || "sale",
+  });
+  const s = (k,v) => setF(x=>({...x,[k]:v}));
+  const [showP, setShowP] = useState(false);
+
+  const usernameConflict = users.some(u=>u.username===f.username && u.id!==initial?.id);
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h3 style={{ fontWeight:800 }}>{initial?"Sửa tài khoản":"Tạo tài khoản mới"}</h3>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div>
+          <label className="label">Tên đăng nhập</label>
+          <input className="input" value={f.username} onChange={e=>s("username",e.target.value.trim())} placeholder="vd: sale3" />
+          {usernameConflict && <div style={{ fontSize:11, color:"var(--danger)", marginTop:4 }}>⚠ Tên đăng nhập đã tồn tại</div>}
+        </div>
+        <div>
+          <label className="label">Mật khẩu</label>
+          <div style={{ position:"relative" }}>
+            <input className="input" type={showP?"text":"password"} value={f.password} onChange={e=>s("password",e.target.value)} style={{ paddingRight:44 }} />
+            <button onClick={()=>setShowP(v=>!v)} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"var(--muted)" }}><Ic n={showP?"eyeoff":"eye"} s={16}/></button>
+          </div>
+        </div>
+        <div>
+          <label className="label">Họ và tên</label>
+          <input className="input" value={f.name} onChange={e=>s("name",e.target.value)} placeholder="vd: Nguyễn Văn A" />
+        </div>
+        <div>
+          <label className="label">Vai trò / Quyền hạn</label>
+          <select className="input" value={f.role} onChange={e=>s("role",e.target.value)}>
+            <option value="owner">👑 Chủ cửa hàng — Toàn quyền</option>
+            <option value="manager">🧑‍💼 Quản lý — Không quản lý TK</option>
+            <option value="sale">👤 Nhân viên bán hàng — Đơn của mình</option>
+          </select>
+          <div style={{ marginTop:8, padding:"8px 12px", background:"var(--sur2)", borderRadius:8, fontSize:12, color:"var(--muted)" }}>
+            {f.role==="owner"   && "Toàn quyền: quản lý TK, báo cáo, tất cả tính năng."}
+            {f.role==="manager" && "Báo cáo, nhập hàng, kho, đơn hàng — không quản lý tài khoản."}
+            {f.role==="sale"    && "Chỉ tạo & xem đơn của mình, thêm khách, xem tồn kho."}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-primary" disabled={!f.username||!f.password||!f.name||usernameConflict} onClick={()=>onSave(f)}>
+            <Ic n="check" s={15}/>{initial?"Cập nhật":"Tạo tài khoản"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// BACKUP / RESTORE
+// ════════════════════════════════════════════════════════
+function BackupPage({ ctx }) {
+  const { products, customers, suppliers, orders, purchases, auditLog, users, setProducts, setCusts, setSuppliers, setOrders, setPurchases, setAuditLog, setUsers, addLog, showToast } = ctx;
+  const fileRef = useRef();
+  const [importPreview, setImportPreview] = useState(null);
+  const [lastBackup, setLastBackup] = useState(() => localStorage.getItem("sp3_last_backup") || null);
+
+  const dataSize = (() => {
+    try {
+      const total = JSON.stringify({products,customers,suppliers,orders,purchases,auditLog,users}).length;
+      return (total/1024).toFixed(1) + " KB";
+    } catch { return "—"; }
+  })();
+
+  const stats = [
+    { label:"Sản phẩm",   count: products.length },
+    { label:"Khách hàng", count: customers.length },
+    { label:"Nhà cung cấp", count: suppliers.length },
+    { label:"Đơn hàng",   count: orders.length },
+    { label:"Phiếu nhập", count: purchases.length },
+    { label:"Tài khoản",  count: users.length },
+    { label:"Lịch sử",    count: auditLog.length },
+  ];
+
+  // ── XUẤT FILE SAO LƯU ──
+  const doBackup = () => {
+    const payload = {
+      _meta: { app:"SalesPro", version:"4.3", exportedAt: new Date().toISOString() },
+      products, customers, suppliers, orders, purchases, auditLog, users,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+    a.href = url;
+    a.download = `salespro-backup-${stamp}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    const now = new Date().toLocaleString("vi-VN");
+    localStorage.setItem("sp3_last_backup", now);
+    setLastBackup(now);
+    addLog("report_view", `Sao lưu dữ liệu — ${dataSize}`);
+    showToast("Đã tải file sao lưu");
+  };
+
+  // ── CHỌN FILE ĐỂ KHÔI PHỤC (chỉ xem trước, chưa ghi đè) ──
+  const pickFile = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.products && !data.orders && !data.customers) {
+          showToast("File không đúng định dạng sao lưu SalesPro","error");
+          return;
+        }
+        setImportPreview({ data, fileName:file.name });
+      } catch {
+        showToast("Không đọc được file — file bị hỏng hoặc sai định dạng","error");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  // ── XÁC NHẬN KHÔI PHỤC — GHI ĐÈ TOÀN BỘ ──
+  const confirmRestore = () => {
+    if (!importPreview) return;
+    const d = importPreview.data;
+    if (!window.confirm("⚠ Khôi phục sẽ GHI ĐÈ toàn bộ dữ liệu hiện tại bằng dữ liệu trong file sao lưu.\n\nBạn có chắc chắn muốn tiếp tục?")) return;
+
+    if (d.products)  setProducts(d.products);
+    if (d.customers) setCusts(d.customers);
+    if (d.suppliers) setSuppliers(d.suppliers);
+    if (d.orders)    setOrders(d.orders);
+    if (d.purchases) setPurchases(d.purchases);
+    if (d.auditLog)  setAuditLog(d.auditLog);
+    if (d.users)      setUsers(d.users);
+
+    showToast("✓ Đã khôi phục dữ liệu thành công");
+    setImportPreview(null);
+    setTimeout(() => window.location.reload(), 1200);
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:18, maxWidth:780 }}>
+
+      {/* Tổng quan dữ liệu hiện tại */}
+      <div className="card">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+          <div className="section-title" style={{ margin:0 }}>📊 Dữ liệu hiện tại</div>
+          <span style={{ fontSize:12, color:"var(--muted)" }}>Dung lượng: <b style={{ color:"var(--text)" }}>{dataSize}</b></span>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))", gap:10 }}>
+          {stats.map((s,i)=>(
+            <div key={i} style={{ background:"var(--sur2)", borderRadius:10, padding:"10px 14px", textAlign:"center" }}>
+              <div style={{ fontSize:20, fontWeight:800, color:"var(--acc)" }}>{s.count}</div>
+              <div style={{ fontSize:11, color:"var(--muted)" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Sao lưu */}
+      <div className="card">
+        <div className="section-title">💾 Sao lưu dữ liệu</div>
+        <p style={{ fontSize:13, color:"var(--muted)", marginBottom:14, lineHeight:1.6 }}>
+          Toàn bộ dữ liệu (sản phẩm, khách hàng, nhà cung cấp, đơn hàng, phiếu nhập, tài khoản, lịch sử thao tác)
+          sẽ được lưu vào <b>1 file .json</b>. Hãy lưu file này vào Google Drive, USB, hoặc email cho chính mình
+          để phòng trường hợp mất dữ liệu do xóa cache trình duyệt hoặc đổi máy tính.
+        </p>
+        {lastBackup && (
+          <div style={{ fontSize:12, color:"var(--green)", marginBottom:12 }}>
+            ✓ Lần sao lưu gần nhất: <b>{lastBackup}</b>
+          </div>
+        )}
+        <button className="btn btn-primary" onClick={doBackup}>
+          <Ic n="download" s={15}/>Tải file sao lưu ngay
+        </button>
+      </div>
+
+      {/* Khôi phục */}
+      <div className="card">
+        <div className="section-title">📂 Khôi phục dữ liệu</div>
+        <p style={{ fontSize:13, color:"var(--muted)", marginBottom:14, lineHeight:1.6 }}>
+          Chọn file <b>.json</b> đã sao lưu trước đó để khôi phục lại dữ liệu.
+          <span style={{ color:"var(--danger)" }}> Lưu ý: thao tác này sẽ ghi đè toàn bộ dữ liệu hiện tại.</span>
+        </p>
+        <button className="btn btn-ghost" onClick={()=>fileRef.current.click()}>
+          <Ic n="upload" s={15}/>Chọn file khôi phục
+        </button>
+        <input ref={fileRef} type="file" accept=".json" style={{ display:"none" }} onChange={pickFile} />
+
+        {/* Preview trước khi ghi đè */}
+        {importPreview && (
+          <div style={{ marginTop:16, background:"var(--sur2)", borderRadius:10, padding:16, border:"1px solid var(--danger)33" }}>
+            <div style={{ fontWeight:700, fontSize:14, marginBottom:10, color:"var(--danger)" }}>⚠ Xác nhận khôi phục</div>
+            <div style={{ fontSize:13, color:"var(--muted)", marginBottom:4 }}>File: <b style={{ color:"var(--text)" }}>{importPreview.fileName}</b></div>
+            {importPreview.data._meta && (
+              <div style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>
+                Xuất lúc: {new Date(importPreview.data._meta.exportedAt).toLocaleString("vi-VN")}
+              </div>
+            )}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))", gap:8, marginBottom:14 }}>
+              {[
+                { l:"Sản phẩm",   v:importPreview.data.products?.length||0 },
+                { l:"Khách hàng", v:importPreview.data.customers?.length||0 },
+                { l:"NCC",        v:importPreview.data.suppliers?.length||0 },
+                { l:"Đơn hàng",   v:importPreview.data.orders?.length||0 },
+                { l:"Phiếu nhập", v:importPreview.data.purchases?.length||0 },
+              ].map((x,i)=>(
+                <div key={i} style={{ background:"var(--bg)", borderRadius:8, padding:"6px 10px", textAlign:"center" }}>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{x.v}</div>
+                  <div style={{ fontSize:10, color:"var(--muted)" }}>{x.l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setImportPreview(null)}>Hủy</button>
+              <button className="btn btn-danger btn-sm" onClick={confirmRestore}><Ic n="check" s={13}/>Xác nhận ghi đè & khôi phục</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Khuyến nghị */}
+      <div style={{ fontSize:12, color:"var(--muted)", background:"var(--sur2)", padding:"12px 16px", borderRadius:10, lineHeight:1.7 }}>
+        💡 <b style={{ color:"var(--text)" }}>Khuyến nghị:</b> Sao lưu định kỳ mỗi tuần hoặc sau mỗi đợt nhập/xuất hàng lớn.
+        Dữ liệu của SalesPro được lưu trong trình duyệt (localStorage) — nếu xóa lịch sử duyệt web,
+        cài lại Windows, hoặc đổi máy tính mà chưa sao lưu, dữ liệu sẽ bị mất vĩnh viễn.
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ════════════════════════════════════════════════════════
+function SInput({ value, onChange, placeholder }) {
+  return (
+    <div style={{ position:"relative", flex:1, minWidth:200 }}>
+      <span style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", color:"var(--muted)" }}><Ic n="search" s={15}/></span>
+      <input className="input" style={{ paddingLeft:36 }} placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function SimpleForm({ title, fields, onSave, onClose, readOnly }) {
+  const [form, setForm] = useState(Object.fromEntries(fields.map(f=>[f.key,f.value])));
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h3 style={{ fontWeight:800 }}>{title}</h3>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}><Ic n="x"/></button>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        {fields.map(f=>(
+          <div key={f.key}>
+            <label className="label">{f.label}</label>
+            <input className="input" value={form[f.key]} disabled={readOnly} onChange={e=>setForm(x=>({...x,[f.key]:e.target.value}))} />
+          </div>
+        ))}
+        {!readOnly && <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn-primary" onClick={()=>onSave(form)}><Ic n="check" s={15}/>Lưu</button>
+        </div>}
+        {readOnly && <button className="btn btn-ghost" onClick={onClose} style={{ justifyContent:"center" }}>Đóng</button>}
+      </div>
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));root.render(<App/>);
+</script></body></html>
