@@ -8,6 +8,7 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script type="text/babel" data-presets="env,react">
 const { useState, useEffect, useRef, useCallback } = React;
 // ════════════════════════════════════════════════════════
@@ -75,6 +76,55 @@ const nowStr = () => new Date().toLocaleString("vi-VN", { hour12: false });
 const todayStr = () => new Date().toISOString().split("T")[0];
 const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+// ════════════════════════════════════════════════════════
+// SUPABASE CONFIG — Điền thông tin của bạn vào đây
+// ════════════════════════════════════════════════════════
+const SB_URL     = "https://vhcraglqcxyfouqddvrc.supabase.co";
+const SB_KEY     = "sb_publishable_lANVDVhh5QBUZMoGe7DBzg_TB9wTBY4";
+const SB_ENABLED = SB_URL !== "PASTE_YOUR_SUPABASE_URL";
+const SB_TABLE   = "sp_store";   // tên bảng trong Supabase
+
+let _sb = null;
+const _writeTimers = {};
+
+function sbWrite(key, data, delay=600) {
+  if (!SB_ENABLED || !_sb) return;
+  clearTimeout(_writeTimers[key]);
+  _writeTimers[key] = setTimeout(async () => {
+    try {
+      await _sb.from(SB_TABLE).upsert({ key, value: data, updated_at: new Date().toISOString() });
+    } catch(e) { console.warn("Supabase write error:", e); }
+  }, delay);
+}
+
+// ════════════════════════════════════════════════════════
+// NUM INPUT — Tự xóa số 0 khi click vào, chọn hết text
+// ════════════════════════════════════════════════════════
+function NumInput({ value, onChange, style, className, placeholder, min, disabled }) {
+  const [display, setDisplay] = useState(value === 0 ? "" : String(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setDisplay(value === 0 ? "" : String(value));
+  }, [value, focused]);
+
+  return (
+    <input
+      className={className}
+      style={style}
+      type="number"
+      min={min}
+      disabled={disabled}
+      placeholder={placeholder || "0"}
+      value={focused ? display : (value === 0 ? "" : value)}
+      onFocus={e => { setFocused(true); setDisplay(value === 0 ? "" : String(value)); setTimeout(()=>e.target.select(),0); }}
+      onChange={e => { setDisplay(e.target.value); onChange(e.target.value === "" ? 0 : +e.target.value); }}
+      onBlur={() => { setFocused(false); if(display===""||display==="-") onChange(0); }}
+    />
+  );
+}
+
+// ── Hook localStorage (fallback khi không có Supabase) ──
 function useLS(key, def) {
   const [v, sv] = useState(() => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : def; } catch { return def; }
@@ -506,6 +556,104 @@ function App() {
   const [purchases,  setPurchases] = useLS("sp3_purchases", SEED_DATA.purchases);
   const [auditLog,   setAuditLog]  = useLS("sp3_audit",     SEED_DATA.auditLog);
 
+  // Supabase state
+  const [sbReady,    setSbReady]   = useState(false);
+  const [sbOnline,   setSbOnline]  = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState({});
+  const [syncMsg,    setSyncMsg]   = useState("");
+
+  // ── Khởi động Supabase ──────────────────────────────
+  useEffect(() => {
+    if (!SB_ENABLED) return;
+    try {
+      _sb = window.supabase.createClient(SB_URL, SB_KEY);
+
+      // Load dữ liệu lần đầu
+      (async () => {
+        const { data, error } = await _sb.from(SB_TABLE).select("key,value");
+        if (error) { setSyncMsg("⚠ Lỗi kết nối Supabase: " + error.message); return; }
+
+        const SETTERS = { users:SU, products:SP, customers:SC, suppliers:SS, orders:SO, purchases:SPu, auditLog:SA };
+        if (data && data.length > 0) {
+          data.forEach(row => {
+            if (SETTERS[row.key] && Array.isArray(row.value)) SETTERS[row.key](row.value);
+          });
+        } else {
+          // Lần đầu — đẩy dữ liệu lên Supabase
+          const init = [
+            { key:"users",     value:SEED_USERS },
+            { key:"products",  value:SEED_DATA.products },
+            { key:"customers", value:SEED_DATA.customers },
+            { key:"suppliers", value:SEED_DATA.suppliers },
+            { key:"orders",    value:SEED_DATA.orders },
+            { key:"purchases", value:SEED_DATA.purchases },
+            { key:"auditLog",  value:SEED_DATA.auditLog },
+          ];
+          await _sb.from(SB_TABLE).upsert(init);
+        }
+        setSbReady(true);
+        setSbOnline(true);
+        setSyncMsg("✓ Đã kết nối Supabase");
+      })();
+
+      // Lắng nghe thay đổi real-time
+      const SETTERS2 = { users:SU, products:SP, customers:SC, suppliers:SS, orders:SO, purchases:SPu, auditLog:SA };
+      const channel = _sb.channel("sp_realtime")
+        .on("postgres_changes", { event:"*", schema:"public", table:SB_TABLE }, payload => {
+          const { key, value } = payload.new || {};
+          if (key && SETTERS2[key] && Array.isArray(value)) {
+            SETTERS2[key](value);
+            setSyncMsg("↺ Đồng bộ: " + key + " lúc " + new Date().toLocaleTimeString("vi-VN"));
+          }
+        })
+        .subscribe(status => {
+          if (status === "SUBSCRIBED") setSbOnline(true);
+          if (status === "CLOSED" || status === "CHANNEL_ERROR") { setSbOnline(false); setSyncMsg("⚠ Mất kết nối real-time"); }
+        });
+
+      return () => _sb.removeChannel(channel);
+    } catch(err) {
+      console.warn("Supabase init error:", err);
+      setSyncMsg("⚠ Lỗi khởi tạo Supabase");
+    }
+  }, []);
+
+  // ── Presence: ai đang online ────────────────────────
+  useEffect(() => {
+    if (!SB_ENABLED || !_sb || !currentUser) return;
+    const channel = _sb.channel("sp_presence")
+      .on("presence", { event:"sync" }, () => {
+        const state = channel.presenceState();
+        const users = {};
+        Object.values(state).flat().forEach(u => { if(u.id) users[u.id] = u; });
+        setOnlineUsers(users);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ id:currentUser.id, name:currentUser.name, role:currentUser.role, ts:Date.now() });
+        }
+      });
+    return () => _sb.removeChannel(channel);
+  }, [currentUser]);
+
+  // ── Write-through: ghi lên Supabase khi state thay đổi ──
+  const fbSetUsers     = useCallback((u) => { setUsers(u);     sbWrite("users",u); }, []);
+  const fbSetProducts  = useCallback((u) => { setProducts(u);  sbWrite("products",u); }, []);
+  const fbSetCusts     = useCallback((u) => { setCusts(u);     sbWrite("customers",u); }, []);
+  const fbSetSuppliers = useCallback((u) => { setSuppliers(u); sbWrite("suppliers",u); }, []);
+  const fbSetOrders    = useCallback((u) => { setOrders(u);    sbWrite("orders",u); }, []);
+  const fbSetPurchases = useCallback((u) => { setPurchases(u); sbWrite("purchases",u); }, []);
+  const fbSetAuditLog  = useCallback((u) => { setAuditLog(u);  sbWrite("auditLog",u); }, []);
+
+  // Dùng Supabase setters nếu enabled, ngược lại dùng local
+  const SU = SB_ENABLED ? fbSetUsers     : setUsers;
+  const SP = SB_ENABLED ? fbSetProducts  : setProducts;
+  const SC = SB_ENABLED ? fbSetCusts     : setCusts;
+  const SS = SB_ENABLED ? fbSetSuppliers : setSuppliers;
+  const SO = SB_ENABLED ? fbSetOrders    : setOrders;
+  const SPu= SB_ENABLED ? fbSetPurchases : setPurchases;
+  const SA = SB_ENABLED ? fbSetAuditLog  : setAuditLog;
+
   const [page,      setPage]    = useState("dashboard");
   const [sideOpen,  setSideOpen] = useState(true);
   const [modal,     setModal]   = useState(null);
@@ -579,7 +727,7 @@ function App() {
     { id:"backup",    label:"Sao lưu dữ liệu",    icon:"save",   perm:"user_manage" },
   ].filter(n => !n.perm || can(u, n.perm));
 
-  const ctx = { u, can, users, setUsers, products, setProducts, customers, setCusts, suppliers, setSuppliers, orders, setOrders, purchases, setPurchases, auditLog, setAuditLog, addLog, setModal, showToast, setPO, draftKey };
+  const ctx = { u, can, users, setUsers:SU, products, setProducts:SP, customers, setCusts:SC, suppliers, setSuppliers:SS, orders, setOrders:SO, purchases, setPurchases:SPu, auditLog, setAuditLog:SA, addLog, setModal, showToast, setPO, draftKey };
 
   const printInvoice = (order) => {
     const cust = customers.find(c => c.id === order.customerId) || {};
@@ -748,10 +896,37 @@ function App() {
               <span style={{ fontWeight:700, fontSize:15 }}>{nav.find(n=>n.id===page)?.label}</span>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              {/* Supabase status indicator */}
+              {SB_ENABLED && (
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background: sbOnline?"#22c55e":"#ef4444", boxShadow: sbOnline?"0 0 6px #22c55e":"none", flexShrink:0 }} title={sbOnline?"Đang kết nối real-time":"Mất kết nối"} />
+                  {/* Online users */}
+                  {Object.values(onlineUsers).filter(x=>x.id!==u.id).map(ou=>(
+                    <div key={ou.id} title={`${ou.name} (${ROLE_META[ou.role]?.label||ou.role}) đang online`}
+                      style={{ width:24, height:24, borderRadius:6, background:"var(--sur2)", border:"1.5px solid var(--acc)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:"var(--acc)", cursor:"default", flexShrink:0 }}>
+                      {ou.name?.charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+                </div>
+              )}
               <span className="hide-mobile" style={{ fontSize:12, color:"var(--muted)" }}>{todayStr()}</span>
               <RoleBadge role={u.role} />
             </div>
           </div>
+
+          {/* Supabase sync message */}
+          {SB_ENABLED && syncMsg && (
+            <div style={{ padding:"4px 16px", fontSize:11, background: sbOnline?"#22c55e15":"#ef444415", color: sbOnline?"#22c55e":"#ef4444", borderBottom:"1px solid var(--bdr)", display:"flex", alignItems:"center", gap:6 }}>
+              {syncMsg}
+              {!SB_ENABLED && <span style={{ marginLeft:"auto", color:"var(--muted)" }}>Cấu hình Supabase để bật đồng bộ</span>}
+            </div>
+          )}
+
+          {!SB_ENABLED && (
+            <div style={{ padding:"4px 16px", fontSize:11, background:"#f59e0b15", color:"var(--yellow)", borderBottom:"1px solid var(--bdr)" }}>
+              ⚠ Chế độ cục bộ — <a href="#" style={{ color:"var(--acc)" }} onClick={e=>{e.preventDefault();setPage("backup");}}>Cấu hình Supabase</a> để đồng bộ thời gian thực
+            </div>
+          )}
 
           {/* PAGE */}
           <div style={{ flex:1, overflowY:"auto", padding:20 }} className="fade-in" key={page}>
@@ -766,7 +941,7 @@ function App() {
             {page==="report"           && <ReportPage ctx={ctx} />}
             {page==="audit"            && <AuditPage ctx={ctx} />}
             {page==="usermgmt"         && <UserMgmtPage ctx={ctx} />}
-            {page==="backup"           && <BackupPage ctx={ctx} />}
+            {page==="backup"           && <BackupPage ctx={ctx} sbOnline={sbOnline} sbEnabled={SB_ENABLED} />}
           </div>
         </div>
       </div>
@@ -1545,8 +1720,8 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
                     {item.isCustom && <div style={{ fontSize:10, color:"var(--yellow)" }}>⚡ SP đặc biệt</div>}
                   </div>
                   <input className="input" value={item.unit} onChange={e=>setItem(idx,"unit",e.target.value)} style={{ padding:"3px 5px", fontSize:11, textAlign:"center" }}/>
-                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"center" }}/>
-                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"3px 5px", fontSize:12, textAlign:"right" }}/>
+                  <NumInput className="input" min={1} value={item.qty} onChange={v=>setItem(idx,"qty",v)} style={{ padding:"3px 5px", fontSize:12, textAlign:"center" }}/>
+                  <NumInput className="input" value={item.price} onChange={v=>setItem(idx,"price",v)} style={{ padding:"3px 5px", fontSize:12, textAlign:"right" }}/>
                   <div style={{ fontWeight:700, fontSize:12, color:"var(--acc)", textAlign:"right" }}>{fmt(item.qty*item.price)}</div>
                   <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={13}/></button>
                 </div>
@@ -1586,8 +1761,8 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
         {/* ═══ TỔNG TIỀN ═══ */}
         <div style={{ ...boxS, borderColor:"var(--acc)33" }}>
           <div className="form-row" style={{ marginBottom:12 }}>
-            <div><label className="label">Chiết khấu (đ)</label><input className="input" type="number" value={discount} onChange={e=>setDiscount(+e.target.value)} /></div>
-            <div><label className="label">Phí giao hàng (đ)</label><input className="input" type="number" value={shippingFee} onChange={e=>setShipFee(+e.target.value)} /></div>
+            <div><label className="label">Chiết khấu (đ)</label><NumInput className="input" value={discount} onChange={v=>setDiscount(v)} /></div>
+            <div><label className="label">Phí giao hàng (đ)</label><NumInput className="input" value={shippingFee} onChange={v=>setShipFee(v)} /></div>
           </div>
 
           <div style={{ display:"flex", flexDirection:"column", gap:4, fontSize:13, marginBottom:10 }}>
@@ -1611,8 +1786,8 @@ function OrderForm({ u, customers, products, onSave, onClose, onAddCustomer }) {
           </div>
 
           <div style={{ marginBottom:8 }}>
-            <label className="label">Khách trả ngay (đ)</label>
-            <input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)} style={{ fontSize:15, fontWeight:700 }} />
+            <label className="label">Khách trả ngay (đ) <span style={{ color:"var(--muted)", fontWeight:400, fontSize:11 }}>— tùy chọn</span></label>
+            <NumInput className="input" value={paid} onChange={v=>setPaid(v)} style={{ fontSize:15, fontWeight:700 }} />
           </div>
 
           {debt>0 && <div style={{ background:"#f43f5e0f", border:"1px solid #f43f5e22", borderRadius:8, padding:"8px 12px", color:"var(--danger)", fontSize:13, fontWeight:600 }}>
@@ -2067,8 +2242,8 @@ function PurchaseForm({ u, suppliers, products, onSave, onClose, onAddSupplier, 
                 <div key={idx} style={{ display:"grid", gridTemplateColumns:"1fr 60px 60px 90px 22px", gap:6, alignItems:"center", padding:"6px 4px", background:"var(--sur2)", borderRadius:6 }}>
                   <div style={{ fontWeight:600, fontSize:12 }}>{item.productName}</div>
                   <div style={{ fontSize:11, color:"var(--muted)", textAlign:"center" }}>{item.unit}</div>
-                  <input className="input" type="number" min="1" value={item.qty} onChange={e=>setItem(idx,"qty",+e.target.value)} style={{ padding:"4px 6px", fontSize:12, textAlign:"center" }}/>
-                  <input className="input" type="number" value={item.price} onChange={e=>setItem(idx,"price",+e.target.value)} style={{ padding:"4px 6px", fontSize:12, textAlign:"right" }}/>
+                  <NumInput className="input" min={1} value={item.qty} onChange={v=>setItem(idx,"qty",v)} style={{ padding:"4px 6px", fontSize:12, textAlign:"center" }}/>
+                  <NumInput className="input" value={item.price} onChange={v=>setItem(idx,"price",v)} style={{ padding:"4px 6px", fontSize:12, textAlign:"right" }}/>
                   <button onClick={()=>removeItem(idx)} style={{ background:"none",border:"none",cursor:"pointer",color:"var(--danger)",padding:0 }}><Ic n="x" s={14}/></button>
                 </div>
               ))}
@@ -2076,7 +2251,7 @@ function PurchaseForm({ u, suppliers, products, onSave, onClose, onAddSupplier, 
           )}
         </div>
 
-        <div><label className="label">Đã thanh toán NCC (đ)</label><input className="input" type="number" value={paid} onChange={e=>setPaid(+e.target.value)}/></div>
+        <div><label className="label">Đã thanh toán NCC (đ)</label><NumInput className="input" value={paid} onChange={v=>setPaid(v)}/></div>
         <div style={{ background:"var(--sur2)", borderRadius:10, padding:"14px 16px" }}>
           <div style={{ display:"flex", justifyContent:"space-between", fontWeight:700 }}>
             <span style={{ color:"var(--muted)" }}>Tổng nhập:</span>
@@ -2135,7 +2310,7 @@ function NewProductInline({ onSubmit, onCancel, productsCount, initialName }) {
           </div>
           <div>
             <label className="label">Giá vốn (đ)</label>
-            <input className="input" type="number" value={costPrice} onChange={e=>setCostPrice(+e.target.value)} />
+            <NumInput className="input" value={costPrice} onChange={v=>setCostPrice(v)} />
           </div>
         </div>
         <div style={{ fontSize:11, color:"var(--muted)" }}>
@@ -2157,7 +2332,38 @@ function ProductsPage({ ctx }) {
   const { u, products, setProducts, suppliers, addLog, setModal, showToast } = ctx;
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState([]);
+  const [inlineEdit, setInlineEdit] = useState(null);
   const fileRef = useRef();
+
+  // ── Inline edit helpers ──
+  const startInline = (p, field) => setInlineEdit({ id:p.id, field, value:p[field]||0 });
+  const saveInline = () => {
+    if (!inlineEdit) return;
+    setProducts(ps=>ps.map(p=>p.id===inlineEdit.id?{...p,[inlineEdit.field]:+inlineEdit.value}:p));
+    addLog("product_update",`Sửa ${inlineEdit.field} SP ID ${inlineEdit.id} → ${inlineEdit.value}`);
+    setInlineEdit(null);
+  };
+  const InlineCell = ({ p, field, color }) => {
+    const isEditing = inlineEdit?.id===p.id && inlineEdit?.field===field;
+    if (isEditing) return (
+      <input autoFocus type="number" value={inlineEdit.value}
+        style={{ width:80, padding:"2px 6px", fontSize:12, textAlign:"right", background:"var(--bg)", border:"1.5px solid var(--acc)", borderRadius:6, color:"var(--text)" }}
+        onFocus={e=>e.target.select()}
+        onChange={e=>setInlineEdit(x=>({...x,value:e.target.value}))}
+        onBlur={saveInline}
+        onKeyDown={e=>{ if(e.key==="Enter") saveInline(); if(e.key==="Escape") setInlineEdit(null); }}
+      />
+    );
+    return (
+      <span onClick={()=>can(u,"product_edit")&&startInline(p,field)}
+        title={can(u,"product_edit")?"Click để sửa nhanh":""}
+        style={{ cursor:can(u,"product_edit")?"pointer":"default", color:color||"inherit", padding:"2px 4px", borderRadius:4, transition:"background 0.1s" }}
+        onMouseEnter={e=>{ if(can(u,"product_edit")) e.target.style.background="var(--sur2)"; }}
+        onMouseLeave={e=>e.target.style.background="transparent"}>
+        {field==="stock"||field==="damaged" ? p[field]||0 : fmt(p[field]||0)}
+      </span>
+    );
+  };
 
   const filtered = products.filter(p=>smartMatch(p.name,search)||smartMatch(p.code,search));
 
@@ -2267,9 +2473,9 @@ function ProductsPage({ ctx }) {
                     <td className="mono" style={{ color:"var(--acc)" }}>{p.code}</td>
                     <td style={{ fontWeight:600 }}>{p.name}</td>
                     <td style={{ color:"var(--muted)" }}>{p.unit}</td>
-                    <td><span className={`badge ${p.stock<30?"badge-red":p.stock<50?"badge-yellow":"badge-green"}`}>{p.stock}</span></td>
-                    <td style={{ color: (p.damaged||0)>0?"var(--danger)":"var(--muted)", fontWeight:(p.damaged||0)>0?700:400 }}>{p.damaged||0}</td>
-                    <td style={{ color:"var(--muted)" }}>{fmt(p.costPrice)}</td>
+                    <td><span className={`badge ${p.stock<30?"badge-red":p.stock<50?"badge-yellow":"badge-green"}`}><InlineCell p={p} field="stock"/></span></td>
+                    <td style={{ color: (p.damaged||0)>0?"var(--danger)":"var(--muted)", fontWeight:(p.damaged||0)>0?700:400 }}><InlineCell p={p} field="damaged" color={(p.damaged||0)>0?"var(--danger)":"var(--muted)"}/></td>
+                    <td style={{ color:"var(--muted)" }}><InlineCell p={p} field="costPrice"/></td>
                     <td style={{ color:"var(--info)" }}>{fmt(p.retailPrice||0)}</td>
                     <td style={{ fontWeight:700, color:"var(--acc)" }}>{fmt(p.price)}</td>
                     <td style={{ color:"var(--green)", fontWeight:700 }}>{margin}%</td>
@@ -2311,7 +2517,7 @@ function BulkPriceEdit({ count, onApply, onClose }) {
         </div>
         <div>
           <label className="label">Tăng / Giảm bao nhiêu (đ)</label>
-          <input className="input" type="number" value={amount} onChange={e=>setAmount(+e.target.value)} style={{ fontSize:16, fontWeight:700 }} />
+          <NumInput className="input" value={amount} onChange={v=>setAmount(v)} style={{ fontSize:16, fontWeight:700 }} />
           <div style={{ fontSize:12, color:"var(--muted)", marginTop:6 }}>
             Nhập số dương (+10000) để tăng, số âm (-5000) để giảm
           </div>
@@ -2371,16 +2577,16 @@ function ProductForm({ initial, onSave, onClose, suppliers, products, readOnly, 
           </div>
         </div>
         <div className="form-row">
-          <div><label className="label">Tồn kho</label><input className="input" type="number" value={f.stock} onChange={e=>s("stock",+e.target.value)} disabled={readOnly}/></div>
-          <div><label className="label">Hàng hỏng</label><input className="input" type="number" value={f.damaged||0} onChange={e=>s("damaged",+e.target.value)} disabled={readOnly}/></div>
+          <div><label className="label">Tồn kho</label><NumInput className="input" value={f.stock} onChange={v=>s("stock",v)} disabled={readOnly}/></div>
+          <div><label className="label">Hàng hỏng</label><NumInput className="input" value={f.damaged||0} onChange={v=>s("damaged",v)} disabled={readOnly}/></div>
         </div>
         <div style={{ background:"var(--sur2)", borderRadius:10, padding:14, border:"1px solid var(--bdr)" }}>
           <div style={{ fontSize:11, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", marginBottom:10 }}>Bảng giá</div>
           <div className="form-row" style={{ marginBottom:10 }}>
-            <div><label className="label">Giá vốn (đ)</label><input className="input" type="number" value={f.costPrice} onChange={e=>s("costPrice",+e.target.value)} disabled={readOnly}/></div>
-            <div><label className="label">Giá bán lẻ (đ)</label><input className="input" type="number" value={f.retailPrice||0} onChange={e=>s("retailPrice",+e.target.value)} disabled={readOnly}/></div>
+            <div><label className="label">Giá vốn (đ)</label><NumInput className="input" value={f.costPrice} onChange={v=>s("costPrice",v)} disabled={readOnly}/></div>
+            <div><label className="label">Giá bán lẻ (đ)</label><NumInput className="input" value={f.retailPrice||0} onChange={v=>s("retailPrice",v)} disabled={readOnly}/></div>
           </div>
-          <div><label className="label">Giá bán buôn (đ)</label><input className="input" type="number" value={f.price} onChange={e=>s("price",+e.target.value)} disabled={readOnly} style={{ fontWeight:700, fontSize:15 }}/></div>
+          <div><label className="label">Giá bán buôn (đ)</label><NumInput className="input" value={f.price} onChange={v=>s("price",v)} disabled={readOnly} style={{ fontWeight:700, fontSize:15 }}/></div>
         </div>
         {f.price>0 && <div style={{ background:"#00d4aa0f", border:"1px solid #00d4aa22", borderRadius:8, padding:"10px 14px", fontSize:13, color:"var(--acc)" }}>
           ✓ Lợi nhuận buôn: {fmt(f.price-f.costPrice)} / {f.unit} — Tỷ suất: {margin}%
@@ -3040,7 +3246,7 @@ function UserForm({ initial, users, onSave, onClose }) {
 // ════════════════════════════════════════════════════════
 // BACKUP / RESTORE
 // ════════════════════════════════════════════════════════
-function BackupPage({ ctx }) {
+function BackupPage({ ctx, sbOnline, sbEnabled }) {
   const { products, customers, suppliers, orders, purchases, auditLog, users, setProducts, setCusts, setSuppliers, setOrders, setPurchases, setAuditLog, setUsers, addLog, showToast } = ctx;
   const fileRef = useRef();
   const [importPreview, setImportPreview] = useState(null);
@@ -3126,6 +3332,55 @@ function BackupPage({ ctx }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:18, maxWidth:780 }}>
+
+      {/* Supabase Status / Setup */}
+      <div className="card" style={{ borderLeft:`3px solid ${sbEnabled&&sbOnline?"#22c55e":sbEnabled?"#ef4444":"#f59e0b"}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <div className="section-title" style={{ margin:0 }}>🔥 Đồng bộ thời gian thực (Supabase)</div>
+          <span className={`badge ${sbEnabled&&sbOnline?"badge-green":sbEnabled?"badge-red":"badge-yellow"}`}>
+            {sbEnabled&&sbOnline?"● Đang kết nối":sbEnabled?"● Mất kết nối":"○ Chưa cấu hình"}
+          </span>
+        </div>
+
+        {!sbEnabled && (
+          <div>
+            <p style={{ fontSize:13, color:"var(--muted)", lineHeight:1.7, marginBottom:12 }}>
+              Để đồng bộ dữ liệu theo thời gian thực giữa các thiết bị/nhân viên, hãy làm theo các bước sau:
+            </p>
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {[
+                { n:"1", t:"Tạo tài khoản Supabase miễn phí", d:<>Vào <a href="https://supabase.com" target="_blank" style={{ color:"var(--acc)" }}>supabase.com</a> → Sign Up → <b>New Project</b> → đặt tên (vd: salespro) → chọn region Singapore → đặt DB password → Create Project</> },
+                { n:"2", t:"Tạo bảng lưu dữ liệu (SQL Editor)", d:<><div>Vào <b>SQL Editor</b> → New query → paste đoạn sau rồi bấm Run:</div><pre style={{ fontSize:11, background:"#0e1016", padding:"8px 12px", borderRadius:6, marginTop:6, color:"var(--acc)", overflowX:"auto" }}>{"CREATE TABLE sp_store (\n  key text PRIMARY KEY,\n  value jsonb NOT NULL,\n  updated_at timestamptz DEFAULT now()\n);\nALTER TABLE sp_store ENABLE ROW LEVEL SECURITY;\nCREATE POLICY \"allow_all\" ON sp_store\n  FOR ALL USING (true) WITH CHECK (true);"}</pre></> },
+                { n:"3", t:"Bật Realtime cho bảng sp_store", d:<>Vào <b>Database → Replication</b> → bật toggle cho bảng <b>sp_store</b> → Save</> },
+                { n:"4", t:"Lấy Project URL và Anon Key", d:<>Vào <b>Project Settings → API</b> → copy <b>Project URL</b> và <b>anon public key</b></> },
+                { n:"5", t:"Dán vào file SalesPro và upload lại", d:<>Mở <code>salespro.html</code> bằng Notepad/VSCode → tìm <code>PASTE_YOUR_SUPABASE_URL</code> → dán URL → tìm <code>PASTE_YOUR_SUPABASE_ANON_KEY</code> → dán key → Lưu → Upload lên GitHub Pages</> },
+              ].map(s=>(
+                <div key={s.n} style={{ display:"flex", gap:12, background:"var(--sur2)", borderRadius:10, padding:"10px 14px" }}>
+                  <div style={{ width:24, height:24, borderRadius:"50%", background:"var(--acc)", color:"#0e1016", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:12, flexShrink:0 }}>{s.n}</div>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13, marginBottom:3 }}>{s.t}</div>
+                    <div style={{ fontSize:12, color:"var(--muted)", lineHeight:1.6 }}>{s.d}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop:14, fontSize:12, color:"var(--muted)", background:"#22c55e0a", padding:"10px 14px", borderRadius:8, border:"1px solid #22c55e22" }}>
+              ✓ <b style={{ color:"var(--text)" }}>Miễn phí hoàn toàn:</b> Supabase Spark plan cho phép 100 kết nối đồng thời, 1GB dữ liệu, 10GB/tháng băng thông — đủ dùng cho toàn bộ nhân viên.
+            </div>
+          </div>
+        )}
+
+        {sbEnabled && sbOnline && (
+          <div style={{ fontSize:13, color:"var(--muted)" }}>
+            ✓ Tất cả thay đổi đang được đồng bộ tự động lên Supabase. Nhân viên trên các thiết bị khác sẽ thấy cập nhật ngay lập tức.
+          </div>
+        )}
+        {sbEnabled && !sbOnline && (
+          <div style={{ fontSize:13, color:"var(--danger)" }}>
+            ⚠ Mất kết nối Supabase. Dữ liệu đang lưu cục bộ — sẽ tự đồng bộ khi có mạng trở lại.
+          </div>
+        )}
+      </div>
 
       {/* Tổng quan dữ liệu hiện tại */}
       <div className="card">
